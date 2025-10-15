@@ -1,4 +1,5 @@
 import random
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 import asyncio
@@ -26,6 +27,9 @@ class MockDataGenerator:
         self.issue_types = ["Story", "Bug", "Task", "Epic", "Sub-task"]
         self.priorities = ["High", "Medium", "Low", "Critical"]
         self.statuses = ["To Do", "In Progress", "Code Review", "Testing", "Done"]
+        
+        # Track generated Jira IDs within a run to avoid duplicates
+        self.generated_jira_ids = set()
         
         self.commit_messages = [
             "Fix login validation bug",
@@ -79,7 +83,7 @@ class MockDataGenerator:
                 tickets_per_day = random.randint(0, 5)
                 
                 for _ in range(tickets_per_day):
-                    ticket = self._create_random_ticket(projects, users, current_date)
+                    ticket = self._create_random_ticket(db, projects, users, current_date)
                     db.add(ticket)
                     tickets.append(ticket)
                 
@@ -103,7 +107,7 @@ class MockDataGenerator:
         finally:
             db.close()
     
-    def _create_random_ticket(self, projects: List[Project], users: List[User], created_date: datetime) -> Ticket:
+    def _create_random_ticket(self, db: Session, projects: List[Project], users: List[User], created_date: datetime) -> Ticket:
         """Create a random ticket"""
         project = random.choice(projects)
         assignee = random.choice(users) if random.random() > 0.2 else None  # 20% unassigned
@@ -121,7 +125,7 @@ class MockDataGenerator:
             status = "To Do"
         
         return Ticket(
-            jira_id=f"{project.key}-{random.randint(1000, 9999)}",
+            jira_id=self._generate_unique_jira_id(db, project.key),
             project_id=project.id,
             assignee_id=assignee.id if assignee else None,
             summary=f"Task {random.randint(1, 1000)}: {random.choice(['Implement', 'Fix', 'Add', 'Update', 'Refactor'])} {random.choice(['feature', 'bug', 'component', 'module'])}",
@@ -136,6 +140,20 @@ class MockDataGenerator:
             resolved_at=resolved_at
         )
     
+    def _generate_unique_jira_id(self, db: Session, project_key: str) -> str:
+        """Generate a Jira ID unique across current run and database."""
+        # Use a larger numeric space to minimize collisions, plus active checks
+        while True:
+            candidate = f"{project_key}-{random.randint(1000, 999999)}"
+            if candidate in self.generated_jira_ids:
+                continue
+            # Defensive: also check the database in case it's not empty
+            exists = db.query(Ticket).filter(Ticket.jira_id == candidate).first()
+            if exists:
+                continue
+            self.generated_jira_ids.add(candidate)
+            return candidate
+
     def _create_random_commit(self, ticket: Ticket, users: List[User]) -> Commit:
         """Create a random commit for a ticket"""
         author = random.choice(users)
@@ -147,7 +165,7 @@ class MockDataGenerator:
             ticket_id=ticket.id,
             project_id=ticket.project_id,
             author_id=author.id,
-            commit_hash=f"{random.randint(100000, 999999):06x}",
+            commit_hash=uuid.uuid4().hex,
             message=random.choice(self.commit_messages),
             created_at=commit_date
         )
