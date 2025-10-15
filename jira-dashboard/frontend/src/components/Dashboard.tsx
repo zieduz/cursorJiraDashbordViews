@@ -100,6 +100,18 @@ const Dashboard: React.FC = () => {
     return null;
   }
 
+  const userProductivityData = metrics.productivity_per_user.map((item) => ({
+    name: item.user,
+    tickets_created: item.tickets_created,
+    tickets_resolved: item.tickets_resolved,
+  }));
+
+  const projectProductivityData = metrics.productivity_per_project.map((item) => ({
+    name: item.project,
+    tickets_created: item.tickets_created,
+    tickets_resolved: item.tickets_resolved,
+  }));
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
@@ -168,11 +180,11 @@ const Dashboard: React.FC = () => {
         {/* Productivity Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <ProductivityChart
-            data={metrics.productivity_per_user}
+            data={userProductivityData}
             title="Productivity by User"
           />
           <ProductivityChart
-            data={metrics.productivity_per_project}
+            data={projectProductivityData}
             title="Productivity by Project"
           />
         </div>
