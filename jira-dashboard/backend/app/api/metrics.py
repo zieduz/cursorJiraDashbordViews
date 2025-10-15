@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ..database import get_db
 from ..schemas import MetricsResponse
 from ..services.metrics_service import MetricsService
@@ -38,7 +38,7 @@ async def get_metrics_summary(
 ):
     """Get a quick metrics summary"""
     
-    end_date = datetime.now()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
     
     metrics_service = MetricsService(db)
