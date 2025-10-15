@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 import asyncio
 from sqlalchemy.orm import Session
@@ -68,7 +68,7 @@ class MockDataGenerator:
             db.commit()
             
             # Generate tickets over the specified period
-            end_date = datetime.now()
+            end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=days_back)
             
             tickets = []
@@ -113,9 +113,9 @@ class MockDataGenerator:
         resolved_at = created_date + timedelta(days=resolution_days) if resolution_days else None
         
         # Random status based on resolution
-        if resolved_at and resolved_at <= datetime.now():
+        if resolved_at and resolved_at <= datetime.now(timezone.utc):
             status = "Done"
-        elif created_date + timedelta(days=1) <= datetime.now():
+        elif created_date + timedelta(days=1) <= datetime.now(timezone.utc):
             status = random.choice(["In Progress", "Code Review", "Testing"])
         else:
             status = "To Do"
@@ -140,7 +140,7 @@ class MockDataGenerator:
         """Create a random commit for a ticket"""
         author = random.choice(users)
         commit_date = ticket.created_at + timedelta(
-            days=random.randint(0, (datetime.now() - ticket.created_at).days)
+            days=random.randint(0, (datetime.now(timezone.utc) - ticket.created_at).days)
         )
         
         return Commit(

@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from ..models import Ticket, User, Project, Commit
 import pandas as pd
@@ -17,7 +17,7 @@ class MetricsService:
         
         # Set default date range if not provided
         if not end_date:
-            end_date = datetime.now()
+            end_date = datetime.now(timezone.utc)
         if not start_date:
             start_date = end_date - timedelta(days=30)
         
@@ -165,7 +165,7 @@ class MetricsService:
         """Calculate SLA compliance percentage"""
         # Assuming SLA is 7 days for resolution
         sla_days = 7
-        sla_cutoff = datetime.now() - timedelta(days=sla_days)
+        sla_cutoff = datetime.now(timezone.utc) - timedelta(days=sla_days)
         
         total_resolved = self.db.query(Ticket).filter(
             *filters, 

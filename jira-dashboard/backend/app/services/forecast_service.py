@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 import pandas as pd
 import numpy as np
@@ -115,7 +115,7 @@ class ForecastService:
         
         # Get daily velocity
         daily_velocity = []
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days_back)
         
         current_date = start_date
@@ -144,7 +144,7 @@ class ForecastService:
         """Return default forecast when insufficient historical data"""
         future_dates = []
         for i in range(1, days_ahead + 1):
-            future_date = datetime.now() + timedelta(days=i)
+            future_date = datetime.now(timezone.utc) + timedelta(days=i)
             future_dates.append(future_date.strftime("%Y-%m-%d"))
         
         return {
