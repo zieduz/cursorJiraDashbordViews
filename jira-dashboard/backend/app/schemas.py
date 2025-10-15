@@ -1,0 +1,122 @@
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+
+
+class ProjectBase(BaseModel):
+    key: str
+    name: str
+    description: Optional[str] = None
+
+
+class ProjectCreate(ProjectBase):
+    pass
+
+
+class Project(ProjectBase):
+    id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class UserBase(BaseModel):
+    jira_id: str
+    email: str
+    display_name: str
+    avatar_url: Optional[str] = None
+
+
+class UserCreate(UserBase):
+    pass
+
+
+class User(UserBase):
+    id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class TicketBase(BaseModel):
+    jira_id: str
+    summary: str
+    description: Optional[str] = None
+    status: str
+    priority: Optional[str] = None
+    issue_type: Optional[str] = None
+    story_points: Optional[int] = None
+    time_estimate: Optional[float] = None
+    time_spent: Optional[float] = None
+
+
+class TicketCreate(TicketBase):
+    project_id: int
+    assignee_id: Optional[int] = None
+
+
+class Ticket(TicketBase):
+    id: int
+    project_id: int
+    assignee_id: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class CommitBase(BaseModel):
+    commit_hash: str
+    message: str
+
+
+class CommitCreate(CommitBase):
+    ticket_id: int
+    project_id: int
+    author_id: int
+
+
+class Commit(CommitBase):
+    id: int
+    ticket_id: int
+    project_id: int
+    author_id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Metrics and Forecast Schemas
+class MetricsResponse(BaseModel):
+    total_tickets: int
+    tickets_created: int
+    tickets_resolved: int
+    tickets_in_progress: int
+    productivity_per_user: List[dict]
+    productivity_per_project: List[dict]
+    ticket_throughput: List[dict]
+    commits_per_issue: List[dict]
+    sla_compliance: float
+    average_resolution_time: float
+
+
+class ForecastResponse(BaseModel):
+    predicted_velocity: List[dict]
+    confidence_interval: List[dict]
+    trend: str
+    next_sprint_prediction: dict
+
+
+class TicketFilters(BaseModel):
+    project_id: Optional[int] = None
+    user_id: Optional[int] = None
+    status: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    limit: int = 100
+    offset: int = 0
