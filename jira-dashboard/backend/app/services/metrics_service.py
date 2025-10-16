@@ -11,8 +11,14 @@ class MetricsService:
     def __init__(self, db: Session):
         self.db = db
     
-    def get_metrics(self, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, 
-                   project_id: Optional[int] = None, user_id: Optional[int] = None) -> Dict:
+    def get_metrics(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        project_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        status: Optional[str] = None,
+    ) -> Dict:
         """Calculate comprehensive metrics"""
         
         # Set default date range if not provided
@@ -27,6 +33,8 @@ class MetricsService:
             filters.append(Ticket.project_id == project_id)
         if user_id:
             filters.append(Ticket.assignee_id == user_id)
+        if status:
+            filters.append(Ticket.status == status)
         
         # Total tickets
         total_tickets = self.db.query(Ticket).filter(*filters).count()

@@ -15,6 +15,7 @@ async def get_metrics(
     end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD) for metrics calculation"),
     project_id: Optional[int] = Query(None, description="Filter by project ID"),
     user_id: Optional[int] = Query(None, description="Filter by user ID"),
+    status: Optional[str] = Query(None, description="Filter by issue status"),
     db: Session = Depends(get_db)
 ):
     """Get comprehensive metrics and KPIs"""
@@ -32,7 +33,8 @@ async def get_metrics(
         start_date=start_dt,
         end_date=end_dt,
         project_id=project_id,
-        user_id=user_id
+        user_id=user_id,
+        status=status,
     )
     
     return MetricsResponse(**metrics)
