@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any, Tuple
+import asyncio
 from datetime import datetime
 import re
 from pydantic import BaseModel
@@ -300,60 +301,170 @@ async def perform_jira_sync(
         raise ValueError("created_since must be a valid date (YYYY-MM-DD or similar)")
     created_since = normalized
 
-    client = JiraClient()
-    total_projects = 0
-    total_issues = 0
-    upserted_projects = 0
-    upserted_users = 0
-    upserted_tickets = 0
-
-    jira_projects_index: Dict[str, Dict[str, Any]] = {}
+    # Concurrency settings for page fetches
     try:
-        all_projects = await client.get_projects()
-        for p in all_projects:
-            if p and isinstance(p, dict) and p.get("key"):
-                jira_projects_index[p["key"]] = p
+        page_size = int(getattr(settings, "jira_page_size", 100))
     except Exception:
-        # Swallow project list errors; we can still sync issues via keys
-        pass
+        page_size = 100
+    try:
+        concurrency = int(getattr(settings, "jira_concurrency", 6))
+    except Exception:
+        concurrency = 6
 
-    for key in project_keys:
-        total_projects += 1
-        jira_project = jira_projects_index.get(key, {})
-        project_name = jira_project.get("name") or key
-        project_desc = jira_project.get("description") if isinstance(jira_project.get("description"), str) else None
+    sem = asyncio.Semaphore(concurrency)
 
-        project = _ensure_project(db, key=key, name=project_name, description=project_desc)
+    # Caches to avoid repeated DB lookups
+    users_by_jira_id: Dict[str, UserModel] = {}
+    users_by_email: Dict[str, UserModel] = {}
 
-        start_at = 0
-        while True:
-            data = await client.get_project_issues(
-                project_key=key,
+    async def fetch_page(client: JiraClient, project_key: str, start_at: int) -> Dict[str, Any]:
+        async with sem:
+            return await client.get_project_issues(
+                project_key=project_key,
                 start_at=start_at,
-                max_results=100,
+                max_results=page_size,
                 created_since=created_since,
             )
-            issues = data.get("issues", [])
-            if not issues:
-                break
 
-            for issue in issues:
+    async with JiraClient() as client:
+        total_projects = 0
+        total_issues = 0
+        upserted_projects = 0
+        upserted_users = 0
+        upserted_tickets = 0
+
+        jira_projects_index: Dict[str, Dict[str, Any]] = {}
+        try:
+            all_projects = await client.get_projects()
+            for p in all_projects:
+                if p and isinstance(p, dict) and p.get("key"):
+                    jira_projects_index[p["key"]] = p
+        except Exception:
+            # Swallow project list errors; we can still sync issues via keys
+            pass
+
+        for key in project_keys:
+            total_projects += 1
+            jira_project = jira_projects_index.get(key, {})
+            project_name = jira_project.get("name") or key
+            project_desc = jira_project.get("description") if isinstance(jira_project.get("description"), str) else None
+
+            project = _ensure_project(db, key=key, name=project_name, description=project_desc)
+
+            # Fetch first page to determine total, then fetch remaining pages concurrently
+            first_page = await fetch_page(client, key, 0)
+            issues_first = first_page.get("issues", [])
+            total_found = int(first_page.get("total", len(issues_first)))
+
+            # Schedule remaining pages
+            tasks = []
+            for start_at in range(page_size, total_found, page_size):
+                tasks.append(asyncio.create_task(fetch_page(client, key, start_at)))
+
+            pages = []
+            if tasks:
+                pages = await asyncio.gather(*tasks)
+
+            # Aggregate issues
+            all_issues: List[Dict[str, Any]] = list(issues_first)
+            for page in pages:
+                page_issues = page.get("issues", [])
+                if page_issues:
+                    all_issues.extend(page_issues)
+
+            if not all_issues:
+                upserted_projects += 1
+                continue
+
+            # Preload existing tickets for this project to avoid N lookups
+            jira_ids = [str(issue.get("key") or "").strip() for issue in all_issues if issue.get("key")]
+            existing_tickets = {}
+            if jira_ids:
+                for t in db.query(TicketModel).filter(TicketModel.jira_id.in_(jira_ids)).all():
+                    existing_tickets[t.jira_id] = t
+
+            # Upsert all issues
+            for issue in all_issues:
                 parsed = client.parse_issue(issue)
                 assignee_info = _parse_assignee(parsed.get("assignee"))
-                user = _ensure_user(db, assignee_info)
+
+                # User cache lookup
+                user: Optional[UserModel] = None
+                cache_key_id = (assignee_info.get("jira_id") or "").strip() or None
+                cache_key_email = (assignee_info.get("email") or "").strip() or None
+                if cache_key_id and cache_key_id in users_by_jira_id:
+                    user = users_by_jira_id[cache_key_id]
+                elif cache_key_email and cache_key_email in users_by_email:
+                    user = users_by_email[cache_key_email]
+                else:
+                    user = _ensure_user(db, assignee_info)
+                    if user:
+                        if user.jira_id:
+                            users_by_jira_id[user.jira_id] = user
+                        if user.email:
+                            users_by_email[user.email] = user
+
                 # Determine earliest resolved/done transition time from changelog
                 first_resolved_at = _compute_first_resolved_datetime(issue)
-                _ensure_ticket(db, project, user, parsed, first_resolved_at=first_resolved_at)
+
+                existing = existing_tickets.get(parsed["jira_id"]) if parsed.get("jira_id") else None
+                if existing:
+                    # Update existing ticket without issuing a read query
+                    ticket = existing
+                    changed = False
+                    mapping = {
+                        "summary": "summary",
+                        "description": "description",
+                        "status": "status",
+                        "priority": "priority",
+                        "issue_type": "issue_type",
+                        "story_points": "story_points",
+                        "time_estimate": "time_estimate",
+                        "time_spent": "time_spent",
+                        "customer": "customer",
+                    }
+                    for src_key, model_attr in mapping.items():
+                        new_val = parsed.get(src_key)
+                        if src_key == "customer" and not (new_val is None or isinstance(new_val, str)):
+                            try:
+                                if isinstance(new_val, dict):
+                                    new_val = (
+                                        (new_val.get("value") or new_val.get("name") or new_val.get("id") or "").strip()
+                                    ) or None
+                                else:
+                                    new_val = str(new_val).strip() or None
+                            except Exception:
+                                new_val = None
+                        if getattr(ticket, model_attr) != new_val:
+                            setattr(ticket, model_attr, new_val)
+                            changed = True
+                    # labels handled separately
+                    labels_list = parsed.get("labels") or []
+                    labels_str = "," + ",".join([str(v) for v in labels_list]) + "," if labels_list else None
+                    if ticket.labels != labels_str:
+                        ticket.labels = labels_str
+                        changed = True
+                    ticket.project_id = project.id
+                    ticket.assignee_id = user.id if user else None
+
+                    created_dt = _parse_jira_datetime(parsed.get("created_at"))
+                    if created_dt and ticket.created_at != created_dt:
+                        ticket.created_at = created_dt
+                        changed = True
+                    resolved_dt = first_resolved_at or _parse_jira_datetime(parsed.get("resolved_at"))
+                    if ticket.resolved_at != resolved_dt:
+                        ticket.resolved_at = resolved_dt
+                        changed = True
+                    if changed:
+                        db.add(ticket)
+                else:
+                    _ensure_ticket(db, project, user, parsed, first_resolved_at=first_resolved_at)
                 total_issues += 1
                 if user:
                     upserted_users += 1
                 upserted_tickets += 1
 
-            start_at += 100
-            if len(issues) < 100:
-                break
-
-        upserted_projects += 1
+            upserted_projects += 1
 
     db.commit()
 
