@@ -8,6 +8,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Prevent the UI from hanging forever when backend is unreachable
+  timeout: 120000, // 120s to allow large syncs, but finite
 });
 
 export const apiService = {
@@ -148,7 +150,7 @@ export const apiService = {
     const payload: any = {};
     if (project_keys && project_keys.length) payload.project_keys = project_keys;
     if (created_since) payload.created_since = created_since;
-    const response = await api.post(`/api/jira/sync`, payload);
+    const response = await api.post(`/api/jira/sync`, payload, { timeout: 300000 }); // up to 5 minutes for sync
     return response.data;
   },
 };

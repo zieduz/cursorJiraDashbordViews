@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
+import re
 from pydantic import BaseModel
 
 from ..database import get_db, SessionLocal
@@ -29,6 +30,59 @@ def _parse_jira_datetime(value: Optional[str]) -> Optional[datetime]:
             return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z")
         except ValueError:
             return None
+
+
+def _normalize_created_since(value: Optional[str]) -> Optional[str]:
+    """Return a YYYY-MM-DD string from various user-entered date formats.
+
+    Accepts values like:
+    - YYYY-MM-DD (unchanged)
+    - YYYY/MM/DD, YYYY MM DD
+    - DD/MM/YYYY, DD-MM-YYYY, DD MM YYYY
+    - MM/DD/YYYY, MM-DD-YYYY, MM MM YYYY
+    Disambiguation: when year is at the end, prefer DMY if day > 12,
+    otherwise treat as MDY.
+    """
+    if not value:
+        return None
+
+    v = value.strip()
+    # Already ISO-like
+    try:
+        dt = datetime.strptime(v, "%Y-%m-%d")
+        return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+
+    # Replace any non-digit with a hyphen to ease splitting
+    cleaned = re.sub(r"[^0-9]", "-", v)
+    parts = [p for p in cleaned.split("-") if p]
+    if len(parts) != 3:
+        return None
+    a, b, c = parts
+    # Year-first
+    if len(a) == 4:
+        try:
+            dt = datetime(int(a), int(b), int(c))
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return None
+    # Year-last (DD/MM/YYYY or MM/DD/YYYY)
+    if len(c) == 4:
+        day = int(a)
+        month = int(b)
+        # If first number > 12, it must be day, so DMY
+        if day > 12:
+            d, m, y = day, month, int(c)
+        else:
+            # Otherwise default to MDY; swap so that a=month, b=day
+            d, m, y = int(b), int(a), int(c)
+        try:
+            dt = datetime(y, m, d)
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return None
+    return None
 
 
 def _compute_first_resolved_datetime(issue: Dict[str, Any]) -> Optional[datetime]:
@@ -241,10 +295,10 @@ async def perform_jira_sync(
         raise ValueError("No project keys provided or configured")
 
     created_since = created_since or settings.jira_created_since
-    try:
-        datetime.strptime(created_since, "%Y-%m-%d")
-    except ValueError:
-        raise ValueError("created_since must be YYYY-MM-DD")
+    normalized = _normalize_created_since(created_since)
+    if not normalized:
+        raise ValueError("created_since must be a valid date (YYYY-MM-DD or similar)")
+    created_since = normalized
 
     client = JiraClient()
     total_projects = 0

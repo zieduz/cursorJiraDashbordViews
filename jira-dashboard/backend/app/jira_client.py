@@ -127,7 +127,11 @@ class JiraClient:
         else:
             self._debug(f"Request: endpoint={endpoint}, url={url}, no params")
 
-        async with httpx.AsyncClient() as client:
+        # Apply conservative network timeouts so failed Jira connections
+        # don't hang the sync indefinitely. These can be tuned via
+        # environment in the future if needed.
+        timeout = httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             try:
                 response = await client.get(url, auth=auth, params=params or {}, headers=headers)
                 response.raise_for_status()
