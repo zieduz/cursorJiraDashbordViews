@@ -77,7 +77,7 @@ export interface Forecast {
   model_accuracy: number;
 }
 
-export type Granularity = 'day' | 'month' | 'year';
+export type Granularity = 'day' | 'week' | 'month' | 'year';
 
 export interface Filters {
   project_id?: number;

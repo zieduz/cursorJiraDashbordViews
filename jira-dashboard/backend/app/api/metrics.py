@@ -19,7 +19,7 @@ async def get_metrics(
     status: Optional[str] = Query(None, description="Filter by issue status"),
     customers: Optional[str] = Query(None, description="Comma-separated list of customers"),
     labels: Optional[str] = Query(None, description="Comma-separated list of labels"),
-    group_by: Optional[str] = Query("day", description="Aggregation granularity: day | month | year"),
+    group_by: Optional[str] = Query("day", description="Aggregation granularity: day | week | month | year"),
     db: Session = Depends(get_db)
 ):
     """Get comprehensive metrics and KPIs"""
@@ -90,7 +90,7 @@ async def get_cumulative_flow(
     status: Optional[str] = Query(None, description="Filter by issue status"),
     customers: Optional[str] = Query(None, description="Comma-separated list of customers"),
     labels: Optional[str] = Query(None, description="Comma-separated list of labels"),
-    group_by: Optional[str] = Query("day", description="Aggregation granularity: day | month | year"),
+    group_by: Optional[str] = Query("day", description="Aggregation granularity: day | week | month | year"),
     db: Session = Depends(get_db),
 ):
     # Default window

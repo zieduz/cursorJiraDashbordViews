@@ -213,7 +213,7 @@ class MetricsService:
     ) -> List[Dict]:
         """Get ticket throughput over time aggregated by period.
 
-        group_by: one of 'day', 'month', 'year'.
+        group_by: one of 'day', 'week', 'month', 'year'.
 
         Note: We intentionally do NOT constrain resolved counts by created_at.
         """
@@ -236,6 +236,9 @@ class MetricsService:
                 return dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
             if gb == "month":
                 return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            if gb == "week":
+                # Anchor weeks to the start of the provided range; use midnight for consistency
+                return dt.replace(hour=0, minute=0, second=0, microsecond=0)
             # day
             return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -246,11 +249,13 @@ class MetricsService:
                 if dt.month == 12:
                     return dt.replace(year=dt.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
                 return dt.replace(month=dt.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            if gb == "week":
+                return dt + timedelta(days=7)
             # day
             return dt + timedelta(days=1)
 
         gb = (group_by or "day").lower()
-        if gb not in {"day", "month", "year"}:
+        if gb not in {"day", "week", "month", "year"}:
             gb = "day"
 
         data: List[Dict] = []
