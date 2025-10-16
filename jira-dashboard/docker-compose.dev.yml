@@ -40,7 +40,6 @@ services:
     command: >
       sh -c "
         python -c 'from app.database import engine; from app.models import Base; Base.metadata.create_all(bind=engine)' &&
-        python -c 'from app.mock_data import generate_mock_data; import asyncio; asyncio.run(generate_mock_data())' &&
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
