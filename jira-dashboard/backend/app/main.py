@@ -1,13 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
-from .database import engine, Base
+from .database import engine, Base, ensure_schema
 from .api import api_router
 from .api.jira_sync import run_startup_sync
 import asyncio
 
-# Create database tables
+# Create database tables and ensure schema consistency
 Base.metadata.create_all(bind=engine)
+ensure_schema(engine)
 
 app = FastAPI(
     title="Jira Performance Dashboard API",
