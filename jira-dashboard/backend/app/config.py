@@ -23,6 +23,26 @@ class Settings(BaseSettings):
     jira_customer_field: str = "customfield_12567"
     # Debug flag to enable verbose Jira request logging
     jira_debug: bool = False
+
+    # Jira performance settings
+    # Max results per page for search queries (Jira Cloud caps at 100)
+    jira_page_size: int = 100
+    # Global concurrency limit for parallel Jira requests
+    jira_concurrency: int = 6
+    # Enable including changelog in search results (heavy payload)
+    jira_include_changelog: bool = True
+    # Enable including description field in search results (can be large)
+    jira_include_description: bool = True
+    # HTTP client behavior
+    jira_http2: bool = True
+    jira_timeout_connect_seconds: float = 5.0
+    jira_timeout_read_seconds: float = 120.0
+    jira_timeout_write_seconds: float = 30.0
+    jira_timeout_pool_seconds: float = 5.0
+    # Retry policy for transient failures / rate limits
+    jira_retry_max_attempts: int = 4
+    jira_retry_backoff_base_seconds: float = 0.5
+    jira_retry_backoff_max_seconds: float = 8.0
     
     # OAuth2
     jira_client_id: str = ""

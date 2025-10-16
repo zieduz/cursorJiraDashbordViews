@@ -1,4 +1,5 @@
 import httpx
+import random
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import asyncio
@@ -24,6 +25,26 @@ class JiraClient:
         self.customer_field = getattr(settings, "jira_customer_field", "customfield_12567") or None
         # Enable verbose debug logging via env (JIRA_DEBUG=true)
         self._debug_enabled = bool(getattr(settings, "jira_debug", False))
+        # Shared HTTP client (lazy)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def __aenter__(self):
+        if self._client is None:
+            timeout = httpx.Timeout(
+                connect=getattr(settings, "jira_timeout_connect_seconds", 5.0),
+                read=getattr(settings, "jira_timeout_read_seconds", 120.0),
+                write=getattr(settings, "jira_timeout_write_seconds", 30.0),
+                pool=getattr(settings, "jira_timeout_pool_seconds", 5.0),
+            )
+            self._client = httpx.AsyncClient(timeout=timeout, http2=bool(getattr(settings, "jira_http2", True)))
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self._client is not None:
+            try:
+                await self._client.aclose()
+            finally:
+                self._client = None
 
     def _mask_value(self, value: Optional[str], show_start: int = 2, show_end: int = 2) -> str:
         """Return a masked representation of a potentially sensitive value."""
@@ -73,7 +94,7 @@ class JiraClient:
             return None
         
     async def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
-        """Make authenticated request to Jira API"""
+        """Make authenticated request to Jira API with retries and timeouts."""
         url = f"{self.base_url}/rest/api/{self.api_version}/{endpoint.lstrip('/')}"
         auth = None
         headers = {"Accept": "application/json"}
@@ -127,30 +148,86 @@ class JiraClient:
         else:
             self._debug(f"Request: endpoint={endpoint}, url={url}, no params")
 
-        # Apply conservative network timeouts so failed Jira connections
-        # don't hang the sync indefinitely. These can be tuned via
-        # environment in the future if needed.
-        timeout = httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                response = await client.get(url, auth=auth, params=params or {}, headers=headers)
-                response.raise_for_status()
-                self._debug(
-                    f"Response: status={response.status_code}, url={str(response.request.url)}"
-                )
-            except httpx.HTTPStatusError as e:
-                resp = e.response
-                req = resp.request if resp is not None else None
-                method = req.method if req is not None else "GET"
-                req_url = str(req.url) if req is not None else url
-                status = resp.status_code if resp is not None else "unknown"
-                body_preview = (resp.text or "")[:500] if resp is not None else ""
-                print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
-                self._debug(
-                    f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={auth_mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
-                )
-                raise
-            return response.json()
+        # Ensure we have a client available
+        client = self._client
+        ephemeral_client: Optional[httpx.AsyncClient] = None
+        if client is None:
+            timeout = httpx.Timeout(
+                connect=getattr(settings, "jira_timeout_connect_seconds", 5.0),
+                read=getattr(settings, "jira_timeout_read_seconds", 120.0),
+                write=getattr(settings, "jira_timeout_write_seconds", 30.0),
+                pool=getattr(settings, "jira_timeout_pool_seconds", 5.0),
+            )
+            ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=bool(getattr(settings, "jira_http2", True)))
+            client = ephemeral_client
+
+        max_attempts = max(1, int(getattr(settings, "jira_retry_max_attempts", 4)))
+        base_backoff = max(0.0, float(getattr(settings, "jira_retry_backoff_base_seconds", 0.5)))
+        max_backoff = max(base_backoff, float(getattr(settings, "jira_retry_backoff_max_seconds", 8.0)))
+        attempt = 0
+        last_error: Optional[Exception] = None
+        try:
+            while attempt < max_attempts:
+                try:
+                    response = await client.get(url, auth=auth, params=params or {}, headers=headers)
+                    # Raise for non-2xx
+                    response.raise_for_status()
+                    self._debug(
+                        f"Response: status={response.status_code}, url={str(response.request.url)}"
+                    )
+                    return response.json()
+                except httpx.HTTPStatusError as e:
+                    status_code = e.response.status_code if e.response is not None else None
+                    # Retry on 429 (rate limit) and 5xx
+                    should_retry = status_code in (429,) or (status_code is not None and 500 <= status_code < 600)
+                    if not should_retry or attempt >= max_attempts - 1:
+                        # Log details then re-raise
+                        resp = e.response
+                        req = resp.request if resp is not None else None
+                        method = req.method if req is not None else "GET"
+                        req_url = str(req.url) if req is not None else url
+                        status = resp.status_code if resp is not None else "unknown"
+                        body_preview = (resp.text or "")[:500] if resp is not None else ""
+                        print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
+                        self._debug(
+                            f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={auth_mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
+                        )
+                        raise
+                    # Compute backoff (respect Retry-After when present)
+                    retry_after = 0.0
+                    try:
+                        header_val = e.response.headers.get("Retry-After") if e.response is not None else None
+                        if header_val:
+                            retry_after = float(header_val)
+                    except Exception:
+                        retry_after = 0.0
+                    backoff = min(max_backoff, retry_after or (base_backoff * (2 ** attempt)))
+                    # Add jitter
+                    backoff *= (0.5 + random.random())
+                    self._debug(f"Retrying {url} after {backoff:.2f}s (attempt {attempt+1}/{max_attempts})")
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    last_error = e
+                except (httpx.TimeoutException, httpx.RequestError) as e:
+                    if attempt >= max_attempts - 1:
+                        print(f"Jira API GET {url} failed after {max_attempts} attempts: {e}")
+                        raise
+                    backoff = min(max_backoff, base_backoff * (2 ** attempt))
+                    backoff *= (0.5 + random.random())
+                    self._debug(f"Network error, retrying {url} after {backoff:.2f}s (attempt {attempt+1}/{max_attempts})")
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    last_error = e
+            # Should not reach here normally
+            if last_error:
+                raise last_error
+            raise RuntimeError("Unexpected retry loop exit in _make_request")
+        finally:
+            if ephemeral_client is not None:
+                try:
+                    await ephemeral_client.aclose()
+                except Exception:
+                    pass
     
     async def get_projects(self) -> List[Dict]:
         """Fetch all projects"""
@@ -165,7 +242,7 @@ class JiraClient:
         self,
         project_key: str,
         start_at: int = 0,
-        max_results: int = 100,
+        max_results: int = None,
         created_since: Optional[str] = None,
     ) -> Dict:
         """Fetch issues for a specific project.
@@ -173,6 +250,11 @@ class JiraClient:
         created_since: Optional date string in format YYYY-MM-DD to filter issues
         created on or after the provided date.
         """
+        if max_results is None:
+            try:
+                max_results = int(getattr(settings, "jira_page_size", 100))
+            except Exception:
+                max_results = 100
         jql_parts = [f"project = {project_key}"]
         if created_since:
             # Jira JQL expects dates quoted in YYYY-MM-DD format
@@ -180,7 +262,7 @@ class JiraClient:
         jql = " AND ".join(jql_parts)
         fields_list = [
             "summary",
-            "description",
+            # Description can be large; include based on config
             "status",
             "priority",
             "issuetype",
@@ -192,6 +274,8 @@ class JiraClient:
             "timeestimate",
             "timespent",
         ]
+        if bool(getattr(settings, "jira_include_description", True)):
+            fields_list.insert(1, "description")
         # Include story points field if configured
         if self.story_points_field:
             fields_list.append(self.story_points_field)
@@ -205,10 +289,11 @@ class JiraClient:
             "startAt": start_at,
             "maxResults": max_results,
             "fields": fields_param,
-            # Include changelog so we can compute the first transition to a
-            # resolved/done status (earliest exit from NON_RESOLVED_STATUSES)
-            "expand": "changelog",
         }
+        # Include changelog so we can compute the first transition to a
+        # resolved/done status (earliest exit from NON_RESOLVED_STATUSES)
+        if bool(getattr(settings, "jira_include_changelog", True)):
+            params["expand"] = "changelog"
         
         try:
             self._debug(
