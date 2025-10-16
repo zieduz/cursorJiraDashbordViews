@@ -7,13 +7,15 @@ interface FiltersProps {
   onFiltersChange: (filters: FilterType) => void;
   projects?: Array<{ id: number; name: string; key?: string }>;
   users?: Array<{ id: number; display_name: string }>;
+  statuses?: string[];
 }
 
 const Filters: React.FC<FiltersProps> = ({
   filters,
   onFiltersChange,
   projects = [],
-  users = []
+  users = [],
+  statuses = []
 }) => {
   const handleInputChange = (field: keyof FilterType, value: string | number | undefined) => {
     onFiltersChange({
@@ -81,11 +83,9 @@ const Filters: React.FC<FiltersProps> = ({
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All Statuses</option>
-            <option value="To Do">To Do</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Code Review">Code Review</option>
-            <option value="Testing">Testing</option>
-            <option value="Done">Done</option>
+            {statuses.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
           </select>
         </div>
 
