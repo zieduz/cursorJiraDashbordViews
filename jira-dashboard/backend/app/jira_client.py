@@ -17,6 +17,20 @@ class JiraClient:
         self.api_version = str(getattr(settings, "jira_api_version", 3))
         # Instance-specific story points field (may differ from 10016)
         self.story_points_field = getattr(settings, "jira_story_points_field", "customfield_10016") or None
+        # Enable verbose debug logging via env (JIRA_DEBUG=true)
+        self._debug_enabled = bool(getattr(settings, "jira_debug", False))
+
+    def _mask_value(self, value: Optional[str], show_start: int = 2, show_end: int = 2) -> str:
+        """Return a masked representation of a potentially sensitive value."""
+        if not value:
+            return "<empty>"
+        if len(value) <= show_start + show_end:
+            return "*" * len(value)
+        return f"{value[:show_start]}***{value[-show_end:]}"
+
+    def _debug(self, message: str) -> None:
+        if self._debug_enabled:
+            print(f"[JiraDebug] {message}")
         
     async def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """Make authenticated request to Jira API"""
@@ -24,10 +38,39 @@ class JiraClient:
         auth = (self.username, self.api_token) if self.username and self.api_token else None
         headers = {"Accept": "application/json"}
         
+        # Pre-request debug logging (without exposing secrets)
+        self._debug(
+            "Config: base_url="
+            + (self.base_url or "<unset>")
+            + f", api_version={self.api_version}, story_points_field={self.story_points_field or '<none>'}"
+        )
+        self._debug(
+            "Auth: configured="
+            + ("yes" if auth else "no")
+            + f", username_present={'yes' if bool(self.username) else 'no'}"
+            + f", token_present={'yes' if bool(self.api_token) else 'no'}"
+            + (f", username_masked={self._mask_value(self.username)}" if self.username else "")
+        )
+        if params is not None:
+            # Keep JQL visible for troubleshooting; truncate if extremely long
+            jql_val = params.get("jql")
+            if isinstance(jql_val, str) and len(jql_val) > 300:
+                jql_preview = jql_val[:300] + "..."
+            else:
+                jql_preview = jql_val
+            self._debug(
+                f"Request: endpoint={endpoint}, url={url}, params_keys={list(params.keys())}, startAt={params.get('startAt')}, maxResults={params.get('maxResults')}, fields_len={len((params.get('fields') or '').split(',')) if params.get('fields') else 0}, jql={jql_preview}"
+            )
+        else:
+            self._debug(f"Request: endpoint={endpoint}, url={url}, no params")
+
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, auth=auth, params=params or {}, headers=headers)
                 response.raise_for_status()
+                self._debug(
+                    f"Response: status={response.status_code}, url={str(response.request.url)}"
+                )
             except httpx.HTTPStatusError as e:
                 resp = e.response
                 req = resp.request if resp is not None else None
@@ -36,6 +79,9 @@ class JiraClient:
                 status = resp.status_code if resp is not None else "unknown"
                 body_preview = (resp.text or "")[:500] if resp is not None else ""
                 print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
+                self._debug(
+                    f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_configured={'yes' if auth else 'no'}"
+                )
                 raise
             return response.json()
     
@@ -91,6 +137,9 @@ class JiraClient:
         }
         
         try:
+            self._debug(
+                f"Searching issues: project={project_key}, created_since={created_since}, startAt={start_at}, maxResults={max_results}, fields={fields_param}"
+            )
             return await self._make_request("search", params)
         except httpx.HTTPStatusError as e:
             # Retry without story points field if Jira rejects unknown/invalid field on this instance
