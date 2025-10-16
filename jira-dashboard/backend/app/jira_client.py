@@ -1,8 +1,9 @@
 import httpx
 import random
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
 import asyncio
+import os
 from .config import settings
 
 
@@ -19,6 +20,20 @@ class JiraClient:
         self.client_secret = settings.jira_client_secret
         # Allow API version to be configured (e.g., 2 for Jira Server/DC)
         self.api_version = str(getattr(settings, "jira_api_version", 3))
+        # Auto-detect Jira Data Center/Server and default to API v2 when not explicitly set
+        try:
+            api_version_env = (os.getenv("JIRA_API_VERSION") or "").strip()
+        except Exception:
+            api_version_env = ""
+        if (
+            not api_version_env
+            and self.api_version == "3"
+            and self.base_url
+            and ("atlassian.net" not in self.base_url.lower())
+        ):
+            # Most Jira DC/Server instances require v2 endpoints
+            self.api_version = "2"
+            self._debug("Auto-selected Jira API v2 for Data Center/Server instance")
         # Instance-specific story points field (may differ from 10016)
         self.story_points_field = getattr(settings, "jira_story_points_field", "customfield_10016") or None
         # Instance-specific customer field (e.g., customfield_12567)
@@ -100,38 +115,47 @@ class JiraClient:
             return None
         
     async def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
-        """Make authenticated request to Jira API with retries and timeouts."""
+        """Make authenticated request to Jira API with retries, timeouts, and 401 auth fallback."""
         url = f"{self.base_url}/rest/api/{self.api_version}/{endpoint.lstrip('/')}"
-        auth = None
-        headers = {"Accept": "application/json"}
 
-        # Determine auth strategy
-        if self.auth_type == "bearer":
-            if self.bearer_token:
-                headers["Authorization"] = f"Bearer {self.bearer_token}"
-            else:
-                # Fall back to basic if bearer is selected but missing
+        # Build auth candidates: try configured mode first, then fallback mode if available
+        def build_auth_candidates() -> List[Tuple[str, Optional[Tuple[str, str]], Dict[str, str]]]:
+            candidates: List[Tuple[str, Optional[Tuple[str, str]], Dict[str, str]]] = []
+            base_headers = {"Accept": "application/json"}
+            # Preferred (configured) mode first
+            if self.auth_type == "bearer":
+                if self.bearer_token:
+                    headers = dict(base_headers)
+                    headers["Authorization"] = f"Bearer {self.bearer_token}"
+                    candidates.append(("bearer", None, headers))
                 if self.username and self.api_token:
-                    auth = (self.username, self.api_token)
-        else:
-            if self.username and self.api_token:
-                auth = (self.username, self.api_token)
-        
+                    candidates.append(("basic", (self.username, self.api_token), dict(base_headers)))
+            else:
+                if self.username and self.api_token:
+                    candidates.append(("basic", (self.username, self.api_token), dict(base_headers)))
+                if self.bearer_token:
+                    headers = dict(base_headers)
+                    headers["Authorization"] = f"Bearer {self.bearer_token}"
+                    candidates.append(("bearer", None, headers))
+            # Ensure we try at least one candidate (even if misconfigured) to surface clear error
+            if not candidates:
+                candidates.append((self.auth_type or "basic", None, dict(base_headers)))
+            return candidates
+
+        auth_candidates = build_auth_candidates()
+
         # Pre-request debug logging (without exposing secrets)
         self._debug(
             "Config: base_url="
             + (self.base_url or "<unset>")
             + f", api_version={self.api_version}, story_points_field={self.story_points_field or '<none>'}"
         )
-        auth_mode = self.auth_type
-        auth_configured = (
-            (auth_mode == "bearer" and bool(headers.get("Authorization")))
-            or (auth_mode != "bearer" and bool(auth))
-        )
         self._debug(
-            "Auth: configured="
-            + ("yes" if auth_configured else "no")
-            + f", mode={auth_mode}"
+            "Auth: candidates="
+            + ", ".join([
+                f"{mode}(configured={'yes' if ((mode=='bearer' and 'Authorization' in headers) or (mode=='basic' and auth is not None)) else 'no'})"
+                for (mode, auth, headers) in auth_candidates
+            ])
             + f", username_present={'yes' if bool(self.username) else 'no'}"
             + f", basic_token_present={'yes' if bool(self.api_token) else 'no'}"
             + f", bearer_present={'yes' if bool(self.bearer_token) else 'no'}"
@@ -175,64 +199,83 @@ class JiraClient:
         max_attempts = max(1, int(getattr(settings, "jira_retry_max_attempts", 4)))
         base_backoff = max(0.0, float(getattr(settings, "jira_retry_backoff_base_seconds", 0.5)))
         max_backoff = max(base_backoff, float(getattr(settings, "jira_retry_backoff_max_seconds", 8.0)))
-        attempt = 0
         last_error: Optional[Exception] = None
         try:
-            while attempt < max_attempts:
-                try:
-                    response = await client.get(url, auth=auth, params=params or {}, headers=headers)
-                    # Raise for non-2xx
-                    response.raise_for_status()
-                    self._debug(
-                        f"Response: status={response.status_code}, url={str(response.request.url)}"
-                    )
-                    return response.json()
-                except httpx.HTTPStatusError as e:
-                    status_code = e.response.status_code if e.response is not None else None
-                    # Retry on 429 (rate limit) and 5xx
-                    should_retry = status_code in (429,) or (status_code is not None and 500 <= status_code < 600)
-                    if not should_retry or attempt >= max_attempts - 1:
-                        # Log details then re-raise
-                        resp = e.response
-                        req = resp.request if resp is not None else None
-                        method = req.method if req is not None else "GET"
-                        req_url = str(req.url) if req is not None else url
-                        status = resp.status_code if resp is not None else "unknown"
-                        body_preview = (resp.text or "")[:500] if resp is not None else ""
-                        print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
-                        self._debug(
-                            f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={auth_mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
-                        )
-                        raise
-                    # Compute backoff (respect Retry-After when present)
-                    retry_after = 0.0
+            for idx, (mode, basic_auth, headers) in enumerate(auth_candidates, start=1):
+                attempt = 0
+                self._debug(f"Using auth candidate {idx}/{len(auth_candidates)}: mode={mode}")
+                while attempt < max_attempts:
                     try:
-                        header_val = e.response.headers.get("Retry-After") if e.response is not None else None
-                        if header_val:
-                            retry_after = float(header_val)
-                    except Exception:
+                        response = await client.get(url, auth=basic_auth, params=params or {}, headers=headers)
+                        response.raise_for_status()
+                        self._debug(
+                            f"Response: status={response.status_code}, url={str(response.request.url)}"
+                        )
+                        return response.json()
+                    except httpx.HTTPStatusError as e:
+                        status_code = e.response.status_code if e.response is not None else None
+                        # If unauthorized/forbidden, try next auth candidate (single immediate fallback)
+                        if status_code in (401, 403):
+                            resp = e.response
+                            req = resp.request if resp is not None else None
+                            method = req.method if req is not None else "GET"
+                            req_url = str(req.url) if req is not None else url
+                            body_preview = (resp.text or "")[:500] if resp is not None else ""
+                            print(
+                                f"Jira API {method} {req_url} failed with {status_code}: {body_preview}"
+                            )
+                            self._debug(
+                                f"Auth failure with mode={mode}; trying next candidate if available"
+                            )
+                            # Move to next auth candidate
+                            last_error = e
+                            break
+                        # Retry on 429 (rate limit) and 5xx
+                        should_retry = status_code in (429,) or (status_code is not None and 500 <= status_code < 600)
+                        if not should_retry or attempt >= max_attempts - 1:
+                            resp = e.response
+                            req = resp.request if resp is not None else None
+                            method = req.method if req is not None else "GET"
+                            req_url = str(req.url) if req is not None else url
+                            status = resp.status_code if resp is not None else "unknown"
+                            body_preview = (resp.text or "")[:500] if resp is not None else ""
+                            print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
+                            self._debug(
+                                f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
+                            )
+                            raise
+                        # Compute backoff (respect Retry-After when present)
                         retry_after = 0.0
-                    backoff = min(max_backoff, retry_after or (base_backoff * (2 ** attempt)))
-                    # Add jitter
-                    backoff *= (0.5 + random.random())
-                    self._debug(f"Retrying {url} after {backoff:.2f}s (attempt {attempt+1}/{max_attempts})")
-                    await asyncio.sleep(backoff)
-                    attempt += 1
-                    last_error = e
-                except (httpx.TimeoutException, httpx.RequestError) as e:
-                    if attempt >= max_attempts - 1:
-                        print(f"Jira API GET {url} failed after {max_attempts} attempts: {e}")
-                        raise
-                    backoff = min(max_backoff, base_backoff * (2 ** attempt))
-                    backoff *= (0.5 + random.random())
-                    self._debug(f"Network error, retrying {url} after {backoff:.2f}s (attempt {attempt+1}/{max_attempts})")
-                    await asyncio.sleep(backoff)
-                    attempt += 1
-                    last_error = e
-            # Should not reach here normally
+                        try:
+                            header_val = e.response.headers.get("Retry-After") if e.response is not None else None
+                            if header_val:
+                                retry_after = float(header_val)
+                        except Exception:
+                            retry_after = 0.0
+                        backoff = min(max_backoff, retry_after or (base_backoff * (2 ** attempt)))
+                        backoff *= (0.5 + random.random())
+                        self._debug(
+                            f"Retrying {url} after {backoff:.2f}s (attempt {attempt+1}/{max_attempts})"
+                        )
+                        await asyncio.sleep(backoff)
+                        attempt += 1
+                        last_error = e
+                    except (httpx.TimeoutException, httpx.RequestError) as e:
+                        if attempt >= max_attempts - 1:
+                            print(f"Jira API GET {url} failed after {max_attempts} attempts: {e}")
+                            raise
+                        backoff = min(max_backoff, base_backoff * (2 ** attempt))
+                        backoff *= (0.5 + random.random())
+                        self._debug(
+                            f"Network error, retrying {url} after {backoff:.2f}s (attempt {attempt+1}/{max_attempts})"
+                        )
+                        await asyncio.sleep(backoff)
+                        attempt += 1
+                        last_error = e
+            # No candidate succeeded
             if last_error:
                 raise last_error
-            raise RuntimeError("Unexpected retry loop exit in _make_request")
+            raise RuntimeError("All authentication candidates failed for Jira request")
         finally:
             if ephemeral_client is not None:
                 try:
