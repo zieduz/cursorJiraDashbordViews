@@ -364,9 +364,14 @@ async def perform_jira_sync(
 
         project = _ensure_project(db, key=key, name=project_name, description=project_desc)
 
+        # Backward-compatible config keys
         page_size = int(getattr(settings, "jira_page_size", 100) or 100)
-        concurrency = int(getattr(settings, "jira_sync_concurrency", 5) or 5)
-        expand_changelog = bool(getattr(settings, "jira_expand_changelog", True))
+        concurrency = int(
+            getattr(settings, "jira_sync_concurrency", getattr(settings, "jira_concurrency", 5)) or 5
+        )
+        expand_changelog = bool(
+            getattr(settings, "jira_expand_changelog", getattr(settings, "jira_include_changelog", True))
+        )
 
         # Fetch first page to determine total and seed processing
         first_page = await client.get_project_issues(

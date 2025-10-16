@@ -2,6 +2,7 @@ import httpx
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import asyncio
+import random
 from .config import settings
 
 
@@ -130,32 +131,84 @@ class JiraClient:
             self._debug(f"Request: endpoint={endpoint}, url={url}, no params")
 
         # Apply conservative network timeouts so failed Jira connections
-        # don't hang the sync indefinitely. These can be tuned via
-        # environment in the future if needed.
+        # don't hang the sync indefinitely. Configurable via env.
         if self._client is None:
-            timeout = httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0)
-            # Enable HTTP/2 when supported by Jira (Cloud supports it)
-            self._client = httpx.AsyncClient(timeout=timeout, http2=True)
+            timeout = httpx.Timeout(
+                connect=float(getattr(settings, "jira_timeout_connect_seconds", 5.0)),
+                read=float(getattr(settings, "jira_timeout_read_seconds", 120.0)),
+                write=float(getattr(settings, "jira_timeout_write_seconds", 30.0)),
+                pool=float(getattr(settings, "jira_timeout_pool_seconds", 5.0)),
+            )
+            http2_enabled = bool(getattr(settings, "jira_http2", True))
+            try:
+                self._client = httpx.AsyncClient(timeout=timeout, http2=http2_enabled)
+            except ImportError:
+                # Gracefully fall back if HTTP/2 dependencies (h2) are missing
+                self._debug("HTTP/2 dependencies missing; falling back to HTTP/1.1")
+                self._client = httpx.AsyncClient(timeout=timeout, http2=False)
 
+        max_attempts = max(1, int(getattr(settings, "jira_retry_max_attempts", 4)))
+        base_backoff = max(0.0, float(getattr(settings, "jira_retry_backoff_base_seconds", 0.5)))
+        max_backoff = max(base_backoff, float(getattr(settings, "jira_retry_backoff_max_seconds", 8.0)))
+        attempt = 0
+        last_error: Optional[Exception] = None
         try:
-            response = await self._client.get(url, auth=auth, params=params or {}, headers=headers)
-            response.raise_for_status()
-            self._debug(
-                f"Response: status={response.status_code}, url={str(response.request.url)}"
-            )
-        except httpx.HTTPStatusError as e:
-            resp = e.response
-            req = resp.request if resp is not None else None
-            method = req.method if req is not None else "GET"
-            req_url = str(req.url) if req is not None else url
-            status = resp.status_code if resp is not None else "unknown"
-            body_preview = (resp.text or "")[:500] if resp is not None else ""
-            print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
-            self._debug(
-                f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={auth_mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
-            )
-            raise
-        return response.json()
+            while attempt < max_attempts:
+                try:
+                    response = await self._client.get(url, auth=auth, params=params or {}, headers=headers)
+                    response.raise_for_status()
+                    self._debug(
+                        f"Response: status={response.status_code}, url={str(response.request.url)}"
+                    )
+                    return response.json()
+                except httpx.HTTPStatusError as e:
+                    status_code = e.response.status_code if e.response is not None else None
+                    # Retry on 429 (rate limit) and 5xx
+                    should_retry = status_code in (429,) or (status_code is not None and 500 <= status_code < 600)
+                    if not should_retry or attempt >= max_attempts - 1:
+                        resp = e.response
+                        req = resp.request if resp is not None else None
+                        method = req.method if req is not None else "GET"
+                        req_url = str(req.url) if req is not None else url
+                        status = resp.status_code if resp is not None else "unknown"
+                        body_preview = (resp.text or "")[:500] if resp is not None else ""
+                        print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
+                        self._debug(
+                            f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={auth_mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
+                        )
+                        raise
+                    # Compute backoff (respect Retry-After when present)
+                    retry_after = 0.0
+                    try:
+                        header_val = e.response.headers.get("Retry-After") if e.response is not None else None
+                        if header_val:
+                            retry_after = float(header_val)
+                    except Exception:
+                        retry_after = 0.0
+                    backoff = min(max_backoff, retry_after or (base_backoff * (2 ** attempt)))
+                    # Add jitter
+                    backoff *= (0.5 + random.random())
+                    self._debug(f"Retrying {url} after {backoff:.2f}s (attempt {attempt+1}/{max_attempts})")
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    last_error = e
+                except (httpx.TimeoutException, httpx.RequestError) as e:
+                    if attempt >= max_attempts - 1:
+                        print(f"Jira API GET {url} failed after {max_attempts} attempts: {e}")
+                        raise
+                    backoff = min(max_backoff, base_backoff * (2 ** attempt))
+                    backoff *= (0.5 + random.random())
+                    self._debug(f"Network error, retrying {url} after {backoff:.2f}s (attempt {attempt+1}/{max_attempts})")
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    last_error = e
+            # Should not reach here normally
+            if last_error:
+                raise last_error
+            raise RuntimeError("Unexpected retry loop exit in _make_request")
+        finally:
+            # Persistent client remains open for reuse; closed by aclose/__aexit__
+            pass
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client if open."""
@@ -228,7 +281,10 @@ class JiraClient:
         }
         # Include changelog only when requested; this significantly increases payload size
         if expand_changelog is None:
-            expand_changelog = bool(getattr(settings, "jira_expand_changelog", True))
+            # Backward-compatible support for both env keys
+            expand_changelog = bool(
+                getattr(settings, "jira_expand_changelog", getattr(settings, "jira_include_changelog", True))
+            )
         if expand_changelog:
             params["expand"] = "changelog"
         
