@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from ..database import get_db, SessionLocal
 from ..models import Project as ProjectModel, User as UserModel, Ticket as TicketModel
 from ..jira_client import JiraClient
+from ..services.metrics_service import NON_RESOLVED_STATUSES
 from ..config import settings
 
 
@@ -28,6 +29,39 @@ def _parse_jira_datetime(value: Optional[str]) -> Optional[datetime]:
             return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z")
         except ValueError:
             return None
+
+
+def _compute_first_resolved_datetime(issue: Dict[str, Any]) -> Optional[datetime]:
+    """Return the first datetime when the issue transitioned to a status
+    not contained in NON_RESOLVED_STATUSES. Falls back to None if not found.
+
+    Expects Jira search result with changelog expanded (expand=changelog).
+    """
+    try:
+        changelog = (issue or {}).get("changelog", {})
+        histories = changelog.get("histories", []) if isinstance(changelog, dict) else []
+        candidate_times: List[datetime] = []
+        for history in histories:
+            created_str = history.get("created")
+            created_dt = _parse_jira_datetime(created_str)
+            if not created_dt:
+                continue
+            for item in history.get("items", []) or []:
+                try:
+                    if (item.get("field") or "").lower() != "status":
+                        continue
+                    to_status = (item.get("toString") or "").strip().lower()
+                    if to_status and to_status not in NON_RESOLVED_STATUSES:
+                        candidate_times.append(created_dt)
+                except Exception:
+                    # Skip malformed items; continue scanning
+                    continue
+        if not candidate_times:
+            return None
+        # Earliest transition to a resolved/done status
+        return min(candidate_times)
+    except Exception:
+        return None
 
 def _parse_assignee(assignee: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
     if not assignee:
@@ -99,7 +133,13 @@ def _ensure_user(db: Session, assignee_info: Dict[str, Optional[str]]) -> Option
     return user
 
 
-def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserModel], issue_parsed: Dict[str, Any]) -> TicketModel:
+def _ensure_ticket(
+    db: Session,
+    project: ProjectModel,
+    assignee: Optional[UserModel],
+    issue_parsed: Dict[str, Any],
+    first_resolved_at: Optional[datetime] = None,
+) -> TicketModel:
     jira_id = issue_parsed["jira_id"]
     ticket = db.query(TicketModel).filter(TicketModel.jira_id == jira_id).first()
     if ticket:
@@ -150,7 +190,8 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
             ticket.created_at = created_dt
             changed = True
 
-        resolved_dt = _parse_jira_datetime(issue_parsed.get("resolved_at"))
+        # Prefer earliest transition to a resolved/done status if available
+        resolved_dt = first_resolved_at or _parse_jira_datetime(issue_parsed.get("resolved_at"))
         if ticket.resolved_at != resolved_dt:
             ticket.resolved_at = resolved_dt
             changed = True
@@ -180,7 +221,8 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
         time_estimate=issue_parsed.get("time_estimate"),
         time_spent=issue_parsed.get("time_spent"),
         created_at=_parse_jira_datetime(issue_parsed.get("created_at")),
-        resolved_at=_parse_jira_datetime(issue_parsed.get("resolved_at")),
+        # Prefer earliest transition to a resolved/done status if available
+        resolved_at=(first_resolved_at or _parse_jira_datetime(issue_parsed.get("resolved_at"))),
     )
     db.add(ticket)
     db.flush()
@@ -245,7 +287,9 @@ async def perform_jira_sync(
                 parsed = client.parse_issue(issue)
                 assignee_info = _parse_assignee(parsed.get("assignee"))
                 user = _ensure_user(db, assignee_info)
-                _ensure_ticket(db, project, user, parsed)
+                # Determine earliest resolved/done transition time from changelog
+                first_resolved_at = _compute_first_resolved_datetime(issue)
+                _ensure_ticket(db, project, user, parsed, first_resolved_at=first_resolved_at)
                 total_issues += 1
                 if user:
                     upserted_users += 1
