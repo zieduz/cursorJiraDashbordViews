@@ -34,6 +34,7 @@ export const apiService = {
     const params = new URLSearchParams();
     if (filters?.project_id) params.append('project_id', filters.project_id.toString());
     if (filters?.user_id) params.append('user_id', filters.user_id.toString());
+    if (filters?.status) params.append('status', filters.status);
     if (filters?.start_date) params.append('start_date', filters.start_date);
     if (filters?.end_date) params.append('end_date', filters.end_date);
     
