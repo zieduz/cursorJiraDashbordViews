@@ -36,7 +36,13 @@ class JiraClient:
                 write=getattr(settings, "jira_timeout_write_seconds", 30.0),
                 pool=getattr(settings, "jira_timeout_pool_seconds", 5.0),
             )
-            self._client = httpx.AsyncClient(timeout=timeout, http2=bool(getattr(settings, "jira_http2", True)))
+            http2_enabled = bool(getattr(settings, "jira_http2", True))
+            try:
+                self._client = httpx.AsyncClient(timeout=timeout, http2=http2_enabled)
+            except ImportError:
+                # Gracefully fall back if HTTP/2 dependencies (h2) are missing
+                self._debug("HTTP/2 dependencies missing; falling back to HTTP/1.1")
+                self._client = httpx.AsyncClient(timeout=timeout, http2=False)
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -158,7 +164,12 @@ class JiraClient:
                 write=getattr(settings, "jira_timeout_write_seconds", 30.0),
                 pool=getattr(settings, "jira_timeout_pool_seconds", 5.0),
             )
-            ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=bool(getattr(settings, "jira_http2", True)))
+            http2_enabled = bool(getattr(settings, "jira_http2", True))
+            try:
+                ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=http2_enabled)
+            except ImportError:
+                self._debug("HTTP/2 dependencies missing; falling back to HTTP/1.1")
+                ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=False)
             client = ephemeral_client
 
         max_attempts = max(1, int(getattr(settings, "jira_retry_max_attempts", 4)))
