@@ -1,4 +1,5 @@
 import httpx
+import random
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import asyncio
@@ -25,8 +26,37 @@ class JiraClient:
         self.customer_field = getattr(settings, "jira_customer_field", "customfield_12567") or None
         # Enable verbose debug logging via env (JIRA_DEBUG=true)
         self._debug_enabled = bool(getattr(settings, "jira_debug", False))
+<<<<<<< HEAD
         # Persistent HTTP client for connection reuse
         self._client: Optional[httpx.AsyncClient] = None
+=======
+        # Shared HTTP client (lazy)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def __aenter__(self):
+        if self._client is None:
+            timeout = httpx.Timeout(
+                connect=getattr(settings, "jira_timeout_connect_seconds", 5.0),
+                read=getattr(settings, "jira_timeout_read_seconds", 120.0),
+                write=getattr(settings, "jira_timeout_write_seconds", 30.0),
+                pool=getattr(settings, "jira_timeout_pool_seconds", 5.0),
+            )
+            http2_enabled = bool(getattr(settings, "jira_http2", True))
+            try:
+                self._client = httpx.AsyncClient(timeout=timeout, http2=http2_enabled)
+            except ImportError:
+                # Gracefully fall back if HTTP/2 dependencies (h2) are missing
+                self._debug("HTTP/2 dependencies missing; falling back to HTTP/1.1")
+                self._client = httpx.AsyncClient(timeout=timeout, http2=False)
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self._client is not None:
+            try:
+                await self._client.aclose()
+            finally:
+                self._client = None
+>>>>>>> origin/main
 
     def _mask_value(self, value: Optional[str], show_start: int = 2, show_end: int = 2) -> str:
         """Return a masked representation of a potentially sensitive value."""
@@ -76,7 +106,7 @@ class JiraClient:
             return None
         
     async def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
-        """Make authenticated request to Jira API"""
+        """Make authenticated request to Jira API with retries and timeouts."""
         url = f"{self.base_url}/rest/api/{self.api_version}/{endpoint.lstrip('/')}"
         auth = None
         headers = {"Accept": "application/json"}
@@ -130,6 +160,7 @@ class JiraClient:
         else:
             self._debug(f"Request: endpoint={endpoint}, url={url}, no params")
 
+<<<<<<< HEAD
         # Apply conservative network timeouts so failed Jira connections
         # don't hang the sync indefinitely. Configurable via env.
         if self._client is None:
@@ -146,6 +177,25 @@ class JiraClient:
                 # Gracefully fall back if HTTP/2 dependencies (h2) are missing
                 self._debug("HTTP/2 dependencies missing; falling back to HTTP/1.1")
                 self._client = httpx.AsyncClient(timeout=timeout, http2=False)
+=======
+        # Ensure we have a client available
+        client = self._client
+        ephemeral_client: Optional[httpx.AsyncClient] = None
+        if client is None:
+            timeout = httpx.Timeout(
+                connect=getattr(settings, "jira_timeout_connect_seconds", 5.0),
+                read=getattr(settings, "jira_timeout_read_seconds", 120.0),
+                write=getattr(settings, "jira_timeout_write_seconds", 30.0),
+                pool=getattr(settings, "jira_timeout_pool_seconds", 5.0),
+            )
+            http2_enabled = bool(getattr(settings, "jira_http2", True))
+            try:
+                ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=http2_enabled)
+            except ImportError:
+                self._debug("HTTP/2 dependencies missing; falling back to HTTP/1.1")
+                ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=False)
+            client = ephemeral_client
+>>>>>>> origin/main
 
         max_attempts = max(1, int(getattr(settings, "jira_retry_max_attempts", 4)))
         base_backoff = max(0.0, float(getattr(settings, "jira_retry_backoff_base_seconds", 0.5)))
@@ -155,7 +205,12 @@ class JiraClient:
         try:
             while attempt < max_attempts:
                 try:
+<<<<<<< HEAD
                     response = await self._client.get(url, auth=auth, params=params or {}, headers=headers)
+=======
+                    response = await client.get(url, auth=auth, params=params or {}, headers=headers)
+                    # Raise for non-2xx
+>>>>>>> origin/main
                     response.raise_for_status()
                     self._debug(
                         f"Response: status={response.status_code}, url={str(response.request.url)}"
@@ -166,6 +221,10 @@ class JiraClient:
                     # Retry on 429 (rate limit) and 5xx
                     should_retry = status_code in (429,) or (status_code is not None and 500 <= status_code < 600)
                     if not should_retry or attempt >= max_attempts - 1:
+<<<<<<< HEAD
+=======
+                        # Log details then re-raise
+>>>>>>> origin/main
                         resp = e.response
                         req = resp.request if resp is not None else None
                         method = req.method if req is not None else "GET"
@@ -207,6 +266,7 @@ class JiraClient:
                 raise last_error
             raise RuntimeError("Unexpected retry loop exit in _make_request")
         finally:
+<<<<<<< HEAD
             # Persistent client remains open for reuse; closed by aclose/__aexit__
             pass
 
@@ -223,6 +283,13 @@ class JiraClient:
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.aclose()
+=======
+            if ephemeral_client is not None:
+                try:
+                    await ephemeral_client.aclose()
+                except Exception:
+                    pass
+>>>>>>> origin/main
     
     async def get_projects(self) -> List[Dict]:
         """Fetch all projects"""
@@ -237,7 +304,7 @@ class JiraClient:
         self,
         project_key: str,
         start_at: int = 0,
-        max_results: int = 100,
+        max_results: int = None,
         created_since: Optional[str] = None,
         expand_changelog: Optional[bool] = None,
     ) -> Dict:
@@ -246,6 +313,11 @@ class JiraClient:
         created_since: Optional date string in format YYYY-MM-DD to filter issues
         created on or after the provided date.
         """
+        if max_results is None:
+            try:
+                max_results = int(getattr(settings, "jira_page_size", 100))
+            except Exception:
+                max_results = 100
         jql_parts = [f"project = {project_key}"]
         if created_since:
             # Jira JQL expects dates quoted in YYYY-MM-DD format
@@ -253,7 +325,7 @@ class JiraClient:
         jql = " AND ".join(jql_parts)
         fields_list = [
             "summary",
-            "description",
+            # Description can be large; include based on config
             "status",
             "priority",
             "issuetype",
@@ -265,6 +337,8 @@ class JiraClient:
             "timeestimate",
             "timespent",
         ]
+        if bool(getattr(settings, "jira_include_description", True)):
+            fields_list.insert(1, "description")
         # Include story points field if configured
         if self.story_points_field:
             fields_list.append(self.story_points_field)
@@ -279,6 +353,7 @@ class JiraClient:
             "maxResults": max_results,
             "fields": fields_param,
         }
+<<<<<<< HEAD
         # Include changelog only when requested; this significantly increases payload size
         if expand_changelog is None:
             # Backward-compatible support for both env keys
@@ -286,6 +361,11 @@ class JiraClient:
                 getattr(settings, "jira_expand_changelog", getattr(settings, "jira_include_changelog", True))
             )
         if expand_changelog:
+=======
+        # Include changelog so we can compute the first transition to a
+        # resolved/done status (earliest exit from NON_RESOLVED_STATUSES)
+        if bool(getattr(settings, "jira_include_changelog", True)):
+>>>>>>> origin/main
             params["expand"] = "changelog"
         
         try:
