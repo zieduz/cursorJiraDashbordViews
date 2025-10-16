@@ -10,14 +10,15 @@ from .config import settings
 class JiraClient:
     def __init__(self):
         # Ensure no trailing slash to avoid double slashes in URLs
-        self.base_url = (settings.jira_base_url or "").rstrip("/")
-        self.username = settings.jira_username
-        self.api_token = settings.jira_api_token
+        # Normalize and trim potentially messy env-provided values
+        self.base_url = (self._clean_str(settings.jira_base_url)).rstrip("/")
+        self.username = self._clean_str(settings.jira_username)
+        self.api_token = self._clean_str(settings.jira_api_token)
         # Auth configuration
-        self.auth_type = (getattr(settings, "jira_auth_type", "basic") or "basic").lower()
-        self.bearer_token = getattr(settings, "jira_bearer_token", "")
-        self.client_id = settings.jira_client_id
-        self.client_secret = settings.jira_client_secret
+        self.auth_type = (self._clean_str(getattr(settings, "jira_auth_type", "basic")) or "basic").lower()
+        self.bearer_token = self._clean_str(getattr(settings, "jira_bearer_token", ""))
+        self.client_id = self._clean_str(settings.jira_client_id)
+        self.client_secret = self._clean_str(settings.jira_client_secret)
         # Allow API version to be configured (e.g., 2 for Jira Server/DC)
         self.api_version = str(getattr(settings, "jira_api_version", 3))
         # Auto-detect Jira Data Center/Server and default to API v2 when not explicitly set
@@ -35,13 +36,29 @@ class JiraClient:
             self.api_version = "2"
             self._debug("Auto-selected Jira API v2 for Data Center/Server instance")
         # Instance-specific story points field (may differ from 10016)
-        self.story_points_field = getattr(settings, "jira_story_points_field", "customfield_10016") or None
+        self.story_points_field = self._clean_str(getattr(settings, "jira_story_points_field", "customfield_10016")) or None
         # Instance-specific customer field (e.g., customfield_12567)
-        self.customer_field = getattr(settings, "jira_customer_field", "customfield_12567") or None
+        self.customer_field = self._clean_str(getattr(settings, "jira_customer_field", "customfield_12567")) or None
         # Enable verbose debug logging via env (JIRA_DEBUG=true)
         self._debug_enabled = bool(getattr(settings, "jira_debug", False))
         # Shared HTTP client (lazy)
         self._client: Optional[httpx.AsyncClient] = None
+
+    def _clean_str(self, value: Optional[str]) -> str:
+        """Return a safely trimmed string without surrounding quotes.
+
+        This prevents subtle 401s caused by pasted tokens/usernames that
+        contain trailing spaces or accidental quote characters.
+        """
+        if value is None:
+            return ""
+        try:
+            s = str(value).strip()
+        except Exception:
+            return ""
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            s = s[1:-1].strip()
+        return s
 
     async def __aenter__(self):
         if self._client is None:
@@ -121,7 +138,13 @@ class JiraClient:
         # Build auth candidates: try configured mode first, then fallback mode if available
         def build_auth_candidates() -> List[Tuple[str, Optional[Tuple[str, str]], Dict[str, str]]]:
             candidates: List[Tuple[str, Optional[Tuple[str, str]], Dict[str, str]]] = []
-            base_headers = {"Accept": "application/json"}
+            # Some proxies/plugins behave better with an explicit UA and Atlassian header
+            base_headers = {
+                "Accept": "application/json",
+                "User-Agent": "jira-dashboard-backend/1.0",
+                # No harm for GET; avoids CSRF checks on some DC setups
+                "X-Atlassian-Token": "no-check",
+            }
             # Preferred (configured) mode first
             if self.auth_type == "bearer":
                 if self.bearer_token:

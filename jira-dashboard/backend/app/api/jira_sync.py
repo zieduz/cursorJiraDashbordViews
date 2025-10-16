@@ -295,7 +295,8 @@ async def perform_jira_sync(
     if not project_keys:
         raise ValueError("No project keys provided or configured")
 
-    created_since = created_since or settings.jira_created_since
+    # Trim whitespace/quotes to avoid malformed JQL and 401 from bad caching layers
+    created_since = (created_since or settings.jira_created_since or "").strip().strip('"').strip("'")
     normalized = _normalize_created_since(created_since)
     if not normalized:
         raise ValueError("created_since must be a valid date (YYYY-MM-DD or similar)")
