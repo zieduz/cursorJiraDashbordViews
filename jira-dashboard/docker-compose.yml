@@ -25,6 +25,9 @@ services:
       JIRA_BASE_URL: ${JIRA_BASE_URL:-https://your-domain.atlassian.net}
       JIRA_USERNAME: ${JIRA_USERNAME:-}
       JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_API_VERSION: ${JIRA_API_VERSION:-3}
+      JIRA_STORY_POINTS_FIELD: ${JIRA_STORY_POINTS_FIELD:-customfield_10016}
+      JIRA_DEBUG: ${JIRA_DEBUG:-false}
       JIRA_PROJECT_KEYS: ${JIRA_PROJECT_KEYS:-}
       JIRA_CREATED_SINCE: ${JIRA_CREATED_SINCE:-2025-01-01}
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-here}
