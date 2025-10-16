@@ -7,6 +7,28 @@ import pandas as pd
 import numpy as np
 
 
+# Statuses considered non-resolved (compared case-insensitively)
+NON_RESOLVED_STATUSES = set(
+    s.lower()
+    for s in [
+        "ready for dev",
+        "open",
+        "in progress",
+        "waiting",
+        "waiting for factory",
+        "created",
+        "reopened",
+        "to be configured",
+        "blocked",
+        "confirmed",
+        "draft",
+        "pending",
+        "in coding",
+        "waiting for information",
+    ]
+)
+
+
 class MetricsService:
     def __init__(self, db: Session):
         self.db = db
@@ -23,31 +45,10 @@ class MetricsService:
         labels: Optional[List[str]] = None,
     ) -> Dict:
         """Calculate comprehensive metrics"""
-        # Define non-resolved statuses (case-insensitive match)
-        non_resolved_statuses = set(
-            s.lower()
-            for s in [
-                "ready for dev",
-                "open",
-                "in progress",
-                "waiting",
-                "waiting for factory",
-                "created",
-                "reopened",
-                "to be configured",
-                "blocked",
-                "confirmed",
-                "draft",
-                "pending",
-                "in coding",
-                "waiting for information",
-            ]
-        )
-
         def is_resolved_clause():
             return and_(
                 Ticket.resolved_at.isnot(None),
-                not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
             )
         
         # Set default date range if not provided
@@ -91,7 +92,7 @@ class MetricsService:
             self.db.query(Ticket)
             .filter(
                 *filters,
-                func.lower(Ticket.status).in_(list(non_resolved_statuses)),
+                func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES)),
             )
             .count()
         )
@@ -143,7 +144,7 @@ class MetricsService:
             func.count(Ticket.id).filter(
                 and_(
                     Ticket.resolved_at.isnot(None),
-                    not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                    not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
                 )
             ).label('tickets_resolved'),
             func.avg(Ticket.story_points).label('avg_story_points'),
@@ -170,7 +171,7 @@ class MetricsService:
             func.count(Ticket.id).filter(
                 and_(
                     Ticket.resolved_at.isnot(None),
-                    not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                    not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
                 )
             ).label('tickets_resolved'),
             func.avg(Ticket.story_points).label('avg_story_points'),
@@ -240,7 +241,7 @@ class MetricsService:
                     Ticket.resolved_at.isnot(None),
                     Ticket.resolved_at >= current_date,
                     Ticket.resolved_at < next_date,
-                    not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                    not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
                 )
                 .count()
             )
@@ -284,7 +285,7 @@ class MetricsService:
             .filter(
                 *filters,
                 Ticket.resolved_at.isnot(None),
-                not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
             )
             .count()
         )
@@ -294,7 +295,7 @@ class MetricsService:
             .filter(
                 *filters,
                 Ticket.resolved_at.isnot(None),
-                not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
                 Ticket.resolved_at <= Ticket.created_at + timedelta(days=sla_days),
             )
             .count()
@@ -314,7 +315,7 @@ class MetricsService:
         ).filter(
             *filters,
             Ticket.resolved_at.isnot(None),
-            not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+            not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
         )
         
         result = query.scalar()
