@@ -96,6 +96,29 @@ class JiraClient:
         if self._debug_enabled:
             print(f"[JiraDebug] {message}")
     
+    def _extract_name(self, raw) -> str:
+        """Return a readable name from Jira field values.
+
+        Handles dicts with common keys (name/value/id) as well as primitives.
+        Ensures a string is always returned even when the input is None.
+        """
+        if raw is None:
+            return ""
+        if isinstance(raw, dict):
+            for key in ("name", "value", "id"):
+                if key in raw and raw[key] is not None:
+                    try:
+                        s = str(raw[key]).strip()
+                    except Exception:
+                        s = ""
+                    if s:
+                        return s
+            return ""
+        try:
+            return str(raw).strip()
+        except Exception:
+            return ""
+
     def _extract_customer_value(self, raw):
         """Return a string customer value from Jira custom field.
 
@@ -442,15 +465,16 @@ class JiraClient:
     
     def parse_issue(self, issue: Dict) -> Dict:
         """Parse Jira issue into our format"""
-        fields = issue.get("fields", {})
+        # Guard against Jira returning fields: null
+        fields = issue.get("fields") or {}
         
         return {
             "jira_id": issue.get("key"),
             "summary": fields.get("summary", ""),
             "description": fields.get("description", ""),
-            "status": fields.get("status", {}).get("name", ""),
-            "priority": fields.get("priority", {}).get("name", ""),
-            "issue_type": fields.get("issuetype", {}).get("name", ""),
+            "status": self._extract_name(fields.get("status")),
+            "priority": self._extract_name(fields.get("priority")),
+            "issue_type": self._extract_name(fields.get("issuetype")),
             "assignee": fields.get("assignee"),
             "labels": fields.get("labels") or [],
             "created_at": fields.get("created"),
