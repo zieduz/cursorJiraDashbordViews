@@ -64,6 +64,7 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
                 className="px-2 py-1 border border-gray-300 rounded-md text-sm"
               >
                 <option value="day">Day</option>
+                <option value="week">Week</option>
                 <option value="month">Month</option>
                 <option value="year">Year</option>
               </select>
