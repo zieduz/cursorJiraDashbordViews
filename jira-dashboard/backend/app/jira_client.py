@@ -201,6 +201,9 @@ class JiraClient:
             "startAt": start_at,
             "maxResults": max_results,
             "fields": fields_param,
+            # Include changelog so we can compute the first transition to a
+            # resolved/done status (earliest exit from NON_RESOLVED_STATUSES)
+            "expand": "changelog",
         }
         
         try:
