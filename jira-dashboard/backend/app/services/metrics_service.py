@@ -55,7 +55,13 @@ class MetricsService:
         productivity_per_project = self._get_productivity_per_project(filters)
         
         # Ticket throughput over time
-        ticket_throughput = self._get_ticket_throughput(filters, start_date, end_date)
+        ticket_throughput = self._get_ticket_throughput(
+            project_id=project_id,
+            user_id=user_id,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+        )
         
         # Commits per issue
         commits_per_issue = self._get_commits_per_issue(filters)
@@ -123,34 +129,63 @@ class MetricsService:
         
         return results
     
-    def _get_ticket_throughput(self, filters: List, start_date: datetime, end_date: datetime) -> List[Dict]:
-        """Get ticket throughput over time (daily)"""
-        daily_data = []
+    def _get_ticket_throughput(
+        self,
+        project_id: Optional[int],
+        user_id: Optional[int],
+        status: Optional[str],
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[Dict]:
+        """Get ticket throughput over time (daily).
+
+        Note: We intentionally do NOT constrain resolved counts by created_at.
+        """
+        non_time_filters: List = []
+        if project_id:
+            non_time_filters.append(Ticket.project_id == project_id)
+        if user_id:
+            non_time_filters.append(Ticket.assignee_id == user_id)
+        if status:
+            non_time_filters.append(Ticket.status == status)
+
+        daily_data: List[Dict] = []
         current_date = start_date
-        
+
         while current_date <= end_date:
             next_date = current_date + timedelta(days=1)
-            
-            created_count = self.db.query(Ticket).filter(
-                *filters, 
-                Ticket.created_at >= current_date,
-                Ticket.created_at < next_date
-            ).count()
-            
-            resolved_count = self.db.query(Ticket).filter(
-                *filters,
-                Ticket.resolved_at >= current_date,
-                Ticket.resolved_at < next_date
-            ).count()
-            
-            daily_data.append({
-                "date": current_date.strftime("%Y-%m-%d"),
-                "created": created_count,
-                "resolved": resolved_count
-            })
-            
+
+            created_count = (
+                self.db.query(Ticket)
+                .filter(
+                    *non_time_filters,
+                    Ticket.created_at >= current_date,
+                    Ticket.created_at < next_date,
+                )
+                .count()
+            )
+
+            resolved_count = (
+                self.db.query(Ticket)
+                .filter(
+                    *non_time_filters,
+                    Ticket.resolved_at.isnot(None),
+                    Ticket.resolved_at >= current_date,
+                    Ticket.resolved_at < next_date,
+                )
+                .count()
+            )
+
+            daily_data.append(
+                {
+                    "date": current_date.strftime("%Y-%m-%d"),
+                    "created": created_count,
+                    "resolved": resolved_count,
+                }
+            )
+
             current_date = next_date
-        
+
         return daily_data
     
     def _get_commits_per_issue(self, filters: List) -> List[Dict]:
