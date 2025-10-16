@@ -82,3 +82,8 @@ export interface Filters {
   start_date?: string;
   end_date?: string;
 }
+
+export interface AppConfig {
+  jira_project_keys: string[];
+  jira_created_since: string;
+}
