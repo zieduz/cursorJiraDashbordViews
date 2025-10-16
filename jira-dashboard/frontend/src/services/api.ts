@@ -11,6 +11,12 @@ const api = axios.create({
 });
 
 export const apiService = {
+  // Filters options
+  getFilterOptions: async (): Promise<{ projects: Array<{ id: number; name: string; key?: string }>; users: Array<{ id: number; display_name: string }>; statuses: string[] }> => {
+    const response = await api.get(`/api/filters/options`);
+    return response.data;
+  },
+
   // Config
   getConfig: async (): Promise<AppConfig> => {
     const response = await api.get(`/api/config/`);
@@ -81,6 +87,15 @@ export const apiService = {
 
   getTicket: async (id: number): Promise<Ticket> => {
     const response = await api.get(`/api/tickets/${id}`);
+    return response.data;
+  },
+
+  // Jira sync
+  syncJira: async (project_keys?: string[], created_since?: string): Promise<any> => {
+    const payload: any = {};
+    if (project_keys && project_keys.length) payload.project_keys = project_keys;
+    if (created_since) payload.created_since = created_since;
+    const response = await api.post(`/api/jira/sync`, payload);
     return response.data;
   },
 };

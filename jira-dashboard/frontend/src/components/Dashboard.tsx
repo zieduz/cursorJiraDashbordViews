@@ -6,10 +6,11 @@ import {
   TrendingUp, 
   Users, 
   FolderOpen,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { apiService } from '../services/api';
-import { Metrics, Forecast, Filters as FilterType, Project } from '../types';
+import { Metrics, Forecast, Filters as FilterType } from '../types';
 import KPICard from './KPICard';
 import Filters from './Filters';
 import ThroughputChart from './Charts/ThroughputChart';
@@ -24,16 +25,33 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load projects and users from API (users still mocked for now)
-  const [projects, setProjects] = useState<Array<Project>>([]);
+  // Load projects, users, and statuses for filters
+  const [projects, setProjects] = useState<Array<{ id: number; name: string; key?: string }>>([]);
+  const [users, setUsers] = useState<Array<{ id: number; display_name: string }>>([]);
+  const [statuses, setStatuses] = useState<string[]>([]);
+  const [resyncLoading, setResyncLoading] = useState<boolean>(false);
 
-  const users = [
-    { id: 1, display_name: 'John Doe' },
-    { id: 2, display_name: 'Jane Smith' },
-    { id: 3, display_name: 'Mike Johnson' },
-    { id: 4, display_name: 'Sarah Wilson' },
-    { id: 5, display_name: 'David Brown' }
-  ];
+  const triggerResync = async () => {
+    try {
+      setResyncLoading(true);
+      // Call backend sync with no params to use configured defaults
+      await apiService.syncJira();
+      // After resync completes, refresh filter options and dashboard data
+      await Promise.all([
+        apiService.getFilterOptions().then(({ projects, users, statuses }) => {
+          setProjects(projects as any);
+          setUsers(users);
+          setStatuses(statuses);
+        }),
+        fetchData(),
+      ]);
+    } catch (err) {
+      console.error('Resync failed:', err);
+      setError('Resync failed. Please check backend logs.');
+    } finally {
+      setResyncLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -60,12 +78,16 @@ const Dashboard: React.FC = () => {
   }, [filters]);
 
   useEffect(() => {
-    // Fetch projects once on mount
+    // Fetch filter options once on mount
     apiService
-      .getProjects()
-      .then((data) => setProjects(data))
+      .getFilterOptions()
+      .then(({ projects, users, statuses }) => {
+        setProjects(projects as any);
+        setUsers(users);
+        setStatuses(statuses);
+      })
       .catch((err) => {
-        console.error('Error fetching projects:', err);
+        console.error('Error fetching filter options:', err);
       });
   }, []);
 
@@ -127,13 +149,29 @@ const Dashboard: React.FC = () => {
           <p className="text-gray-600">Track team performance and forecast future velocity</p>
         </div>
 
-        {/* Filters */}
+        {/* Actions + Filters */}
+        <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end mb-4">
+          <div className="flex-1">
         <Filters
           filters={filters}
           onFiltersChange={handleFiltersChange}
           projects={projects}
-          users={users}
-        />
+            users={users}
+            statuses={statuses}
+          />
+          </div>
+          <div className="flex items-end">
+            <button
+              onClick={triggerResync}
+              disabled={resyncLoading}
+              className={`h-10 px-4 inline-flex items-center gap-2 rounded-md border ${resyncLoading ? 'bg-gray-200 text-gray-500 border-gray-300' : 'bg-blue-600 text-white border-blue-700 hover:bg-blue-700'} transition-colors`}
+              title="Resync Jira data"
+            >
+              <RefreshCw className={`h-4 w-4 ${resyncLoading ? 'animate-spin' : ''}`} />
+              {resyncLoading ? 'Resyncing…' : 'Resync Jira'}
+            </button>
+          </div>
+        </div>
 
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
