@@ -235,12 +235,15 @@ A full-stack application that connects to Jira REST API to visualize team perfor
 
 ### Jira API Setup
 
-1. **Generate API Token:**
-   - Go to https://id.atlassian.com/manage-profile/security/api-tokens
-   - Create a new API token
-   - Copy the token to your `.env` file
+1. **Choose Auth Based on Your Jira Type:**
+   - Jira Cloud (`*.atlassian.net`): Use email + API token with `JIRA_AUTH_TYPE=basic` and keep `JIRA_API_VERSION=3`.
+   - Jira Server/Data Center (on-prem like `jira.company.com`): Prefer Personal Access Token with `JIRA_AUTH_TYPE=bearer` and set `JIRA_API_VERSION=2`.
 
-2. **OAuth2 Setup (Optional):**
+2. **Generate Credentials:**
+   - For Cloud API token: https://id.atlassian.com/manage-profile/security/api-tokens
+   - For Server/DC PAT: follow your instance docs to create a Personal Access Token
+
+3. **OAuth2 Setup (Optional):**
    - Create an OAuth2 app in your Jira instance
    - Set redirect URI to `http://localhost:3000/auth/callback`
    - Add client ID and secret to `.env`

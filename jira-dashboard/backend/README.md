@@ -80,8 +80,11 @@ FastAPI backend for the Jira Performance Dashboard application.
 ### Environment Variables
 - `DATABASE_URL` - PostgreSQL connection string
 - `JIRA_BASE_URL` - Jira instance URL
-- `JIRA_USERNAME` - Jira username
-- `JIRA_API_TOKEN` - Jira API token
+- `JIRA_AUTH_TYPE` - `basic` (Cloud) or `bearer` (Server/DC)
+- `JIRA_USERNAME` - Jira username/email (required for basic)
+- `JIRA_API_TOKEN` - Jira API token (required for basic)
+- `JIRA_BEARER_TOKEN` - Personal Access Token (required for bearer)
+- `JIRA_API_VERSION` - REST API version (Cloud=3, Server/DC=2)
 - `SECRET_KEY` - JWT secret key
 - `CORS_ORIGINS` - Allowed CORS origins
 

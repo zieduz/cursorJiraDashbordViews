@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     jira_base_url: str = "https://your-domain.atlassian.net"
     jira_username: str = ""
     jira_api_token: str = ""
-    # Auth type: 'basic' (username + password/token) or 'bearer' (PAT)
+    # Auth type preference. Tries configured, then falls back automatically on 401.
+    # Options: 'basic' (email + API token) or 'bearer' (PAT for Server/DC)
     jira_auth_type: str = "basic"
     # Personal Access Token for Jira Server/Data Center (Authorization: Bearer)
     jira_bearer_token: str = ""
