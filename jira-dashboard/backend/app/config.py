@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     jira_base_url: str = "https://your-domain.atlassian.net"
     jira_username: str = ""
     jira_api_token: str = ""
+    jira_api_version: int = 3
+    # Story points custom field key; override per instance if different
+    jira_story_points_field: str = "customfield_10016"
     
     # OAuth2
     jira_client_id: str = ""
