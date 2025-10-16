@@ -59,6 +59,33 @@ class Settings(BaseSettings):
         if "," in raw:
             return [part.strip().strip('"').strip("'") for part in raw.split(",") if part.strip()]
         return [raw]
+
+    @property
+    def jira_project_keys(self) -> List[str]:
+        """Return Jira project keys from env var `JIRA_PROJECT_KEYS`.
+
+        Supports JSON array (e.g., '["PROJ", "OPS"]') or comma-separated values
+        (e.g., 'PROJ,OPS'). Returns empty list if not configured.
+        """
+        raw = os.getenv("JIRA_PROJECT_KEYS", "").strip()
+        if not raw:
+            return []
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except Exception:
+                pass
+        return [part.strip().strip('"').strip("'") for part in raw.split(",") if part.strip()]
+
+    @property
+    def jira_created_since(self) -> str:
+        """Return the default created-since date filter for Jira sync.
+
+        Falls back to '2025-01-01' to match the requested behavior.
+        """
+        return os.getenv("JIRA_CREATED_SINCE", "2025-01-01")
     
     class Config:
         env_file = ".env"

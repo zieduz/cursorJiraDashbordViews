@@ -32,9 +32,23 @@ class JiraClient:
             print(f"Error fetching projects: {e}")
             return []
     
-    async def get_project_issues(self, project_key: str, start_at: int = 0, max_results: int = 100) -> Dict:
-        """Fetch issues for a specific project"""
-        jql = f"project = {project_key}"
+    async def get_project_issues(
+        self,
+        project_key: str,
+        start_at: int = 0,
+        max_results: int = 100,
+        created_since: Optional[str] = None,
+    ) -> Dict:
+        """Fetch issues for a specific project.
+
+        created_since: Optional date string in format YYYY-MM-DD to filter issues
+        created on or after the provided date.
+        """
+        jql_parts = [f"project = {project_key}"]
+        if created_since:
+            # Jira JQL expects dates quoted in YYYY-MM-DD format
+            jql_parts.append(f'created >= "{created_since}"')
+        jql = " AND ".join(jql_parts)
         params = {
             "jql": jql,
             "startAt": start_at,
