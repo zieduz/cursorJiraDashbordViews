@@ -5,7 +5,7 @@ import { Filters as FilterType } from '../types';
 interface FiltersProps {
   filters: FilterType;
   onFiltersChange: (filters: FilterType) => void;
-  projects?: Array<{ id: number; name: string }>;
+  projects?: Array<{ id: number; name: string; key?: string }>;
   users?: Array<{ id: number; display_name: string }>;
 }
 
@@ -44,7 +44,7 @@ const Filters: React.FC<FiltersProps> = ({
             <option value="">All Projects</option>
             {projects.map((project) => (
               <option key={project.id} value={project.id}>
-                {project.name}
+                {project.name}{project.key ? ` (${project.key})` : ''}
               </option>
             ))}
           </select>
