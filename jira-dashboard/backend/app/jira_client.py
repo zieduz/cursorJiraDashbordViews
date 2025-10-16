@@ -36,6 +36,41 @@ class JiraClient:
     def _debug(self, message: str) -> None:
         if self._debug_enabled:
             print(f"[JiraDebug] {message}")
+    
+    def _extract_customer_value(self, raw):
+        """Return a string customer value from Jira custom field.
+
+        Handles Jira option objects (dicts with 'value' or 'name'), plain
+        strings, numeric IDs, or lists (uses the first non-empty value).
+        """
+        if raw is None:
+            return None
+        # Single select option returned as an object
+        if isinstance(raw, dict):
+            candidate = raw.get("value") or raw.get("name") or raw.get("id") or ""
+            val = str(candidate).strip()
+            return val or None
+        # Multi-select could return a list of option objects; pick the first meaningful value
+        if isinstance(raw, list):
+            for item in raw:
+                v = None
+                if isinstance(item, dict):
+                    candidate = item.get("value") or item.get("name") or item.get("id") or ""
+                    v = str(candidate).strip()
+                elif isinstance(item, str):
+                    v = item.strip()
+                else:
+                    v = str(item).strip()
+                if v:
+                    return v
+            return None
+        if isinstance(raw, str):
+            return raw.strip() or None
+        # Fallback for numeric IDs or unexpected primitives
+        try:
+            return str(raw).strip() or None
+        except Exception:
+            return None
         
     async def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """Make authenticated request to Jira API"""
@@ -253,7 +288,7 @@ class JiraClient:
             "updated_at": fields.get("updated"),
             "resolved_at": fields.get("resolutiondate"),
             "story_points": fields.get(self.story_points_field) if self.story_points_field else None,
-            "customer": fields.get(self.customer_field) if self.customer_field else None,
+            "customer": self._extract_customer_value(fields.get(self.customer_field)) if self.customer_field else None,
             "time_estimate": fields.get("timeestimate"),
             "time_spent": fields.get("timespent")
         }
