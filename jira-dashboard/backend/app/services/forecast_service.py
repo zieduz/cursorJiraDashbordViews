@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, not_
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 import pandas as pd
@@ -7,6 +7,7 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from ..models import Ticket
+from .metrics_service import NON_RESOLVED_STATUSES
 
 
 class ForecastService:
@@ -106,8 +107,12 @@ class ForecastService:
                                user_id: Optional[int] = None) -> List[Dict]:
         """Get historical velocity data (story points completed per day)"""
         
-        # Base filters
-        filters = [Ticket.status == "Done", Ticket.resolved_at.isnot(None)]
+        # Base filters: treat any status not in NON_RESOLVED_STATUSES as resolved
+        # This aligns the forecast with metrics calculations
+        filters = [
+            Ticket.resolved_at.isnot(None),
+            not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
+        ]
         if project_id:
             filters.append(Ticket.project_id == project_id)
         if user_id:
