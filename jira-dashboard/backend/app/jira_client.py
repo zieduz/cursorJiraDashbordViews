@@ -7,20 +7,36 @@ from .config import settings
 
 class JiraClient:
     def __init__(self):
-        self.base_url = settings.jira_base_url
+        # Ensure no trailing slash to avoid double slashes in URLs
+        self.base_url = (settings.jira_base_url or "").rstrip("/")
         self.username = settings.jira_username
         self.api_token = settings.jira_api_token
         self.client_id = settings.jira_client_id
         self.client_secret = settings.jira_client_secret
+        # Allow API version to be configured (e.g., 2 for Jira Server/DC)
+        self.api_version = str(getattr(settings, "jira_api_version", 3))
+        # Instance-specific story points field (may differ from 10016)
+        self.story_points_field = getattr(settings, "jira_story_points_field", "customfield_10016") or None
         
     async def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """Make authenticated request to Jira API"""
-        url = f"{self.base_url}/rest/api/3/{endpoint}"
-        auth = (self.username, self.api_token)
+        url = f"{self.base_url}/rest/api/{self.api_version}/{endpoint.lstrip('/')}"
+        auth = (self.username, self.api_token) if self.username and self.api_token else None
+        headers = {"Accept": "application/json"}
         
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, auth=auth, params=params or {})
-            response.raise_for_status()
+            try:
+                response = await client.get(url, auth=auth, params=params or {}, headers=headers)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                resp = e.response
+                req = resp.request if resp is not None else None
+                method = req.method if req is not None else "GET"
+                req_url = str(req.url) if req is not None else url
+                status = resp.status_code if resp is not None else "unknown"
+                body_preview = (resp.text or "")[:500] if resp is not None else ""
+                print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
+                raise
             return response.json()
     
     async def get_projects(self) -> List[Dict]:
@@ -49,15 +65,49 @@ class JiraClient:
             # Jira JQL expects dates quoted in YYYY-MM-DD format
             jql_parts.append(f'created >= "{created_since}"')
         jql = " AND ".join(jql_parts)
+        fields_list = [
+            "summary",
+            "description",
+            "status",
+            "priority",
+            "issuetype",
+            "assignee",
+            "created",
+            "updated",
+            "resolutiondate",
+            "timeestimate",
+            "timespent",
+        ]
+        # Include story points field if configured
+        if self.story_points_field:
+            fields_list.append(self.story_points_field)
+
+        fields_param = ",".join(fields_list)
         params = {
             "jql": jql,
             "startAt": start_at,
             "maxResults": max_results,
-            "fields": "summary,description,status,priority,issuetype,assignee,created,updated,resolutiondate,timeestimate,timespent,customfield_10016"  # story points field
+            "fields": fields_param,
         }
         
         try:
             return await self._make_request("search", params)
+        except httpx.HTTPStatusError as e:
+            # Retry without story points field if Jira rejects unknown/invalid field on this instance
+            resp_text = e.response.text if e.response is not None else ""
+            if self.story_points_field and self.story_points_field in resp_text:
+                try:
+                    fields_without_sp = ",".join([f for f in fields_list if f != self.story_points_field])
+                    retry_params = dict(params, fields=fields_without_sp)
+                    print(
+                        f"Retrying search for project {project_key} without story points field '{self.story_points_field}'"
+                    )
+                    return await self._make_request("search", retry_params)
+                except Exception as retry_e:
+                    print(f"Error fetching issues for project {project_key} after retry: {retry_e}")
+                    return {"issues": []}
+            print(f"Error fetching issues for project {project_key}: {e}")
+            return {"issues": []}
         except Exception as e:
             print(f"Error fetching issues for project {project_key}: {e}")
             return {"issues": []}
@@ -92,7 +142,14 @@ class JiraClient:
     async def get_users(self) -> List[Dict]:
         """Fetch all users"""
         try:
-            data = await self._make_request("users/search", {"maxResults": 1000})
+            if self.api_version == "3":
+                endpoint = "users/search"
+                params = {"maxResults": 1000}
+            else:
+                # Jira Server/DC (v2) uses singular 'user' path and 'username' param
+                endpoint = "user/search"
+                params = {"username": "", "maxResults": 1000}
+            data = await self._make_request(endpoint, params)
             return data
         except Exception as e:
             print(f"Error fetching users: {e}")
@@ -113,7 +170,7 @@ class JiraClient:
             "created_at": fields.get("created"),
             "updated_at": fields.get("updated"),
             "resolved_at": fields.get("resolutiondate"),
-            "story_points": fields.get("customfield_10016"),  # Story points field
+            "story_points": fields.get(self.story_points_field) if self.story_points_field else None,
             "time_estimate": fields.get("timeestimate"),
             "time_spent": fields.get("timespent")
         }
@@ -125,7 +182,8 @@ class JiraOAuth:
         self.client_id = settings.jira_client_id
         self.client_secret = settings.jira_client_secret
         self.redirect_uri = settings.jira_redirect_uri
-        self.base_url = settings.jira_base_url
+        # Ensure no trailing slash to avoid double slashes
+        self.base_url = (settings.jira_base_url or "").rstrip("/")
     
     def get_authorization_url(self) -> str:
         """Generate OAuth2 authorization URL"""
