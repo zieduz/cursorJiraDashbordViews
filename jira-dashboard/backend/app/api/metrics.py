@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date, time as dtime
 from ..database import get_db
 from ..schemas import MetricsResponse
 from ..services.metrics_service import MetricsService
@@ -11,18 +11,26 @@ router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 
 @router.get("/", response_model=MetricsResponse)
 async def get_metrics(
-    start_date: Optional[datetime] = Query(None, description="Start date for metrics calculation"),
-    end_date: Optional[datetime] = Query(None, description="End date for metrics calculation"),
+    start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD) for metrics calculation"),
+    end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD) for metrics calculation"),
     project_id: Optional[int] = Query(None, description="Filter by project ID"),
     user_id: Optional[int] = Query(None, description="Filter by user ID"),
     db: Session = Depends(get_db)
 ):
     """Get comprehensive metrics and KPIs"""
-    
+    # Convert date inputs to timezone-aware datetimes spanning full days
+    start_dt: Optional[datetime] = None
+    end_dt: Optional[datetime] = None
+
+    if start_date is not None:
+        start_dt = datetime.combine(start_date, dtime.min).replace(tzinfo=timezone.utc)
+    if end_date is not None:
+        end_dt = datetime.combine(end_date, dtime.max).replace(tzinfo=timezone.utc)
+
     metrics_service = MetricsService(db)
     metrics = metrics_service.get_metrics(
-        start_date=start_date,
-        end_date=end_date,
+        start_date=start_dt,
+        end_date=end_dt,
         project_id=project_id,
         user_id=user_id
     )
