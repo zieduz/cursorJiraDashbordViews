@@ -120,6 +120,18 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
             # Normalize labels: store as comma-delimited string for LIKE queries
             if src_key == "labels":
                 new_val = "," + ",".join([str(v) for v in (new_val or [])]) + "," if new_val else None
+            # Ensure customer stored as string (parse layer may already handle it)
+            if src_key == "customer" and not (new_val is None or isinstance(new_val, str)):
+                try:
+                    # Prefer common keys if dict provided unexpectedly
+                    if isinstance(new_val, dict):
+                        new_val = (
+                            (new_val.get("value") or new_val.get("name") or new_val.get("id") or "").strip()
+                        ) or None
+                    else:
+                        new_val = str(new_val).strip() or None
+                except Exception:
+                    new_val = None
             if getattr(ticket, model_attr) != new_val:
                 setattr(ticket, model_attr, new_val)
                 changed = True
@@ -155,7 +167,14 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
         status=issue_parsed.get("status") or "",
         priority=issue_parsed.get("priority"),
         issue_type=issue_parsed.get("issue_type"),
-        customer=issue_parsed.get("customer"),
+        # Ensure customer coerced to string for DB storage
+        customer=(issue_parsed.get("customer") if isinstance(issue_parsed.get("customer"), str) else (
+            (
+                (issue_parsed.get("customer") or {}).get("value")
+                if isinstance(issue_parsed.get("customer"), dict)
+                else (str(issue_parsed.get("customer")).strip() if issue_parsed.get("customer") is not None else None)
+            )
+        )),
         labels=("," + ",".join([str(v) for v in (issue_parsed.get("labels") or [])]) + ",") if issue_parsed.get("labels") else None,
         story_points=issue_parsed.get("story_points"),
         time_estimate=issue_parsed.get("time_estimate"),
