@@ -9,7 +9,8 @@ import {
   Legend,
   ResponsiveContainer,
   Area,
-  AreaChart
+  AreaChart,
+  ReferenceLine,
 } from 'recharts';
 
 interface VelocityData {
@@ -28,6 +29,9 @@ const VelocityChart: React.FC<VelocityChartProps> = ({
   data, 
   showConfidenceInterval = false 
 }) => {
+  const averageVelocity = data && data.length ? (
+    data.reduce((sum, item) => sum + (item.velocity || 0), 0) / data.length
+  ) : 0;
   return (
     <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
       <h3 className="text-lg font-semibold text-gray-900 mb-4">Velocity Forecast</h3>
@@ -74,6 +78,9 @@ const VelocityChart: React.FC<VelocityChartProps> = ({
               strokeWidth={3}
               name="Predicted Velocity"
             />
+            {averageVelocity > 0 && (
+              <ReferenceLine y={averageVelocity} stroke="#9CA3AF" strokeDasharray="4 4" label={{ value: `Avg ${averageVelocity.toFixed(1)}`, position: 'right', fill: '#6b7280', fontSize: 12 }} />
+            )}
           </AreaChart>
         ) : (
           <LineChart data={data}>
@@ -96,6 +103,9 @@ const VelocityChart: React.FC<VelocityChartProps> = ({
               strokeWidth={3}
               name="Predicted Velocity"
             />
+            {averageVelocity > 0 && (
+              <ReferenceLine y={averageVelocity} stroke="#9CA3AF" strokeDasharray="4 4" label={{ value: `Avg ${averageVelocity.toFixed(1)}`, position: 'right', fill: '#6b7280', fontSize: 12 }} />
+            )}
           </LineChart>
         )}
       </ResponsiveContainer>
