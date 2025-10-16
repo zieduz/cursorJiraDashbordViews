@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Metrics, Forecast, Ticket, Filters } from '../types';
+import { Metrics, Forecast, Ticket, Filters, Project } from '../types';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -12,7 +12,7 @@ const api = axios.create({
 
 export const apiService = {
   // Projects
-  getProjects: async (): Promise<Array<{ id: number; key: string; name: string }>> => {
+  getProjects: async (): Promise<Project[]> => {
     const response = await api.get(`/api/projects/`);
     return response.data;
   },
