@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import Project as ProjectModel, User as UserModel, Ticket as TicketModel
 from ..jira_client import JiraClient
 from ..config import settings
@@ -126,27 +126,22 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
     return ticket
 
 
-@router.post("/sync", summary="Sync Jira issues for configured projects since a date")
-async def sync_jira(
+async def perform_jira_sync(
+    db: Session,
     project_keys: Optional[List[str]] = None,
     created_since: Optional[str] = None,
-    db: Session = Depends(get_db),
-):
-    """Sync Jira issues for the provided project keys (or configured keys) created on/after a date.
-
-    - project_keys: List of Jira project keys. If omitted, uses `JIRA_PROJECT_KEYS` env.
-    - created_since: YYYY-MM-DD. If omitted, uses `JIRA_CREATED_SINCE` (default 2025-01-01).
-    """
+) -> Dict[str, Any]:
+    """Core Jira sync logic reused by API and startup."""
     if project_keys is None or len(project_keys) == 0:
         project_keys = settings.jira_project_keys
     if not project_keys:
-        raise HTTPException(status_code=400, detail="No project keys provided or configured")
+        raise ValueError("No project keys provided or configured")
 
     created_since = created_since or settings.jira_created_since
     try:
         datetime.strptime(created_since, "%Y-%m-%d")
     except ValueError:
-        raise HTTPException(status_code=400, detail="created_since must be YYYY-MM-DD")
+        raise ValueError("created_since must be YYYY-MM-DD")
 
     client = JiraClient()
     total_projects = 0
@@ -162,6 +157,7 @@ async def sync_jira(
             if p and isinstance(p, dict) and p.get("key"):
                 jira_projects_index[p["key"]] = p
     except Exception:
+        # Swallow project list errors; we can still sync issues via keys
         pass
 
     for key in project_keys:
@@ -174,7 +170,12 @@ async def sync_jira(
 
         start_at = 0
         while True:
-            data = await client.get_project_issues(project_key=key, start_at=start_at, max_results=100, created_since=created_since)
+            data = await client.get_project_issues(
+                project_key=key,
+                start_at=start_at,
+                max_results=100,
+                created_since=created_since,
+            )
             issues = data.get("issues", [])
             if not issues:
                 break
@@ -206,3 +207,39 @@ async def sync_jira(
         "created_since": created_since,
         "project_keys": project_keys,
     }
+
+
+@router.post("/sync", summary="Sync Jira issues for configured projects since a date")
+async def sync_jira(
+    project_keys: Optional[List[str]] = None,
+    created_since: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Sync Jira issues for the provided project keys (or configured keys) created on/after a date.
+
+    - project_keys: List of Jira project keys. If omitted, uses `JIRA_PROJECT_KEYS` env.
+    - created_since: YYYY-MM-DD. If omitted, uses `JIRA_CREATED_SINCE` (default 2025-01-01).
+    """
+    try:
+        return await perform_jira_sync(db, project_keys=project_keys, created_since=created_since)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+async def run_startup_sync() -> None:
+    """Run Jira sync at app startup if credentials and keys are configured."""
+    required = [settings.jira_base_url, settings.jira_username, settings.jira_api_token]
+    if not all(required) or not settings.jira_project_keys:
+        print("Skipping Jira startup sync: missing Jira credentials or project keys")
+        return
+
+    db = SessionLocal()
+    try:
+        result = await perform_jira_sync(db)
+        print(
+            f"Jira startup sync completed: projects={result['projects_processed']} issues={result['issues_processed']}"
+        )
+    except Exception as e:
+        print(f"Jira startup sync failed: {e}")
+    finally:
+        db.close()

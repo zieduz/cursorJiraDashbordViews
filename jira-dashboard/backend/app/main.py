@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .database import engine, Base
 from .api import api_router
+from .api.jira_sync import run_startup_sync
+import asyncio
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -43,3 +45,9 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# Kick off a background Jira sync after startup if configured
+@app.on_event("startup")
+async def startup_event():
+    # Run without blocking startup
+    asyncio.create_task(run_startup_sync())
