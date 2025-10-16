@@ -32,9 +32,43 @@ def ensure_schema(engine) -> None:
 
     alter_statements = []
 
-    # Add 'customer' column if missing; nullable matches ORM default
+    # Add newly introduced nullable columns used by the ORM model.
+    # Keep types aligned with models.Ticket definitions and prefer nullable to avoid backfilling.
+    # Note: Using generic SQL to remain compatible with Postgres.
+
+    # String/VARCHAR fields
+    if "issue_type" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN issue_type VARCHAR(50)")
+    if "priority" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN priority VARCHAR(20)")
     if "customer" not in ticket_columns:
         alter_statements.append("ALTER TABLE tickets ADD COLUMN customer VARCHAR(200)")
+
+    # Text fields
+    if "labels" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN labels TEXT")
+    if "description" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN description TEXT")
+
+    # Numeric fields
+    if "story_points" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN story_points INTEGER")
+    if "time_estimate" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN time_estimate DOUBLE PRECISION")
+    if "time_spent" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN time_spent DOUBLE PRECISION")
+
+    # Timestamps
+    if "updated_at" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN updated_at TIMESTAMPTZ")
+    if "resolved_at" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN resolved_at TIMESTAMPTZ")
+
+    # Foreign keys (nullable). We do not enforce FK constraints here to avoid migration complexity.
+    if "assignee_id" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN assignee_id INTEGER")
+    if "project_id" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN project_id INTEGER")
 
     if not alter_statements:
         return
