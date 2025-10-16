@@ -427,6 +427,84 @@ class MetricsService:
             "p95_days": p95_days,
         }
 
+    def get_lead_time_metrics(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        project_ids: Optional[List[int]] = None,
+        user_id: Optional[int] = None,
+        customers: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+    ) -> Dict:
+        """Compute Lead Time metrics (created to resolved) for resolved issues.
+
+        Lead time is defined as the elapsed time between the ticket creation
+        and its resolution. Returned in days with distribution percentiles.
+        """
+        non_time_filters: List = [
+            Ticket.resolved_at.isnot(None),
+        ]
+        if project_ids:
+            non_time_filters.append(Ticket.project_id.in_(project_ids))
+        if user_id:
+            non_time_filters.append(Ticket.assignee_id == user_id)
+        if customers:
+            non_time_filters.append(Ticket.customer.in_(customers))
+        if labels:
+            label_clauses = [Ticket.labels.like(f"%,{lbl},%") for lbl in labels]
+            if label_clauses:
+                non_time_filters.append(or_(*label_clauses))
+
+        tickets = (
+            self.db.query(Ticket)
+            .filter(
+                *non_time_filters,
+                Ticket.resolved_at >= start_date,
+                Ticket.resolved_at <= end_date,
+                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
+            )
+            .all()
+        )
+
+        points: List[Dict] = []
+        values: List[float] = []
+        for t in tickets:
+            # Compute hours between created and resolved for lead time
+            hours = float((t.resolved_at - t.created_at).total_seconds() / 3600.0)
+            days = max(hours / 24.0, 0.0)
+            values.append(days)
+            points.append(
+                {
+                    "jira_id": t.jira_id,
+                    "lead_time_days": days,
+                    "resolved_at": t.resolved_at.isoformat(),
+                }
+            )
+
+        def percentile(vals: List[float], p: float) -> float:
+            if not vals:
+                return 0.0
+            sv = sorted(vals)
+            k = (len(sv) - 1) * p
+            f = int(k)
+            c = min(f + 1, len(sv) - 1)
+            if f == c:
+                return sv[int(k)]
+            d0 = sv[f] * (c - k)
+            d1 = sv[c] * (k - f)
+            return d0 + d1
+
+        average_days = float(np.mean(values)) if values else 0.0
+        p85_days = float(percentile(values, 0.85)) if values else 0.0
+        p95_days = float(percentile(values, 0.95)) if values else 0.0
+
+        return {
+            "points": points,
+            "average_days": average_days,
+            "p85_days": p85_days,
+            "p95_days": p95_days,
+        }
+
     def _get_commits_per_issue(
         self,
         start_date: datetime,

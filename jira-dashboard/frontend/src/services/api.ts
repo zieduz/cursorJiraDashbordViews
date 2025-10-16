@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Metrics, Forecast, Ticket, Filters, Project, AppConfig } from '../types';
+import { Metrics, Forecast, Ticket, Filters, Project, AppConfig, CumulativeFlowPoint, DurationStats } from '../types';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -63,6 +63,51 @@ export const apiService = {
     if (user_id) params.append('user_id', user_id.toString());
     
     const response = await api.get(`/api/forecast?${params.toString()}`);
+    return response.data;
+  },
+
+  // CFD and Control/Lead Time
+  getCumulativeFlow: async (filters?: Filters): Promise<{ cfd: CumulativeFlowPoint[] }> => {
+    const params = new URLSearchParams();
+    if (filters?.project_id) params.append('project_id', filters.project_id.toString());
+    if (filters?.project_ids && filters.project_ids.length) params.append('project_ids', filters.project_ids.join(','));
+    if (filters?.user_id) params.append('user_id', filters.user_id.toString());
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.customers && filters.customers.length) params.append('customers', filters.customers.join(','));
+    if (filters?.labels && filters.labels.length) params.append('labels', filters.labels.join(','));
+    if (filters?.start_date) params.append('start_date', filters.start_date);
+    if (filters?.end_date) params.append('end_date', filters.end_date);
+    if ((filters as any)?.group_by) params.append('group_by', (filters as any).group_by);
+
+    const response = await api.get(`/api/metrics/cfd?${params.toString()}`);
+    return response.data;
+  },
+
+  getControlChart: async (filters?: Filters): Promise<DurationStats> => {
+    const params = new URLSearchParams();
+    if (filters?.project_id) params.append('project_id', filters.project_id.toString());
+    if (filters?.project_ids && filters.project_ids.length) params.append('project_ids', filters.project_ids.join(','));
+    if (filters?.user_id) params.append('user_id', filters.user_id.toString());
+    if (filters?.customers && filters.customers.length) params.append('customers', filters.customers.join(','));
+    if (filters?.labels && filters.labels.length) params.append('labels', filters.labels.join(','));
+    if (filters?.start_date) params.append('start_date', filters.start_date);
+    if (filters?.end_date) params.append('end_date', filters.end_date);
+
+    const response = await api.get(`/api/metrics/control-chart?${params.toString()}`);
+    return response.data;
+  },
+
+  getLeadTime: async (filters?: Filters): Promise<DurationStats> => {
+    const params = new URLSearchParams();
+    if (filters?.project_id) params.append('project_id', filters.project_id.toString());
+    if (filters?.project_ids && filters.project_ids.length) params.append('project_ids', filters.project_ids.join(','));
+    if (filters?.user_id) params.append('user_id', filters.user_id.toString());
+    if (filters?.customers && filters.customers.length) params.append('customers', filters.customers.join(','));
+    if (filters?.labels && filters.labels.length) params.append('labels', filters.labels.join(','));
+    if (filters?.start_date) params.append('start_date', filters.start_date);
+    if (filters?.end_date) params.append('end_date', filters.end_date);
+
+    const response = await api.get(`/api/metrics/lead-time?${params.toString()}`);
     return response.data;
   },
 

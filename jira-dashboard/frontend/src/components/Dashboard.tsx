@@ -16,6 +16,8 @@ import Filters from './Filters';
 import ThroughputPanel from './Charts/ThroughputPanel';
 import VelocityChart from './Charts/VelocityChart';
 import ProductivityChart from './Charts/ProductivityChart';
+import CFDChart from './Charts/CFDChart';
+import ControlChart from './Charts/ControlChart';
 import CommitsChart from './Charts/CommitsChart';
 
 const Dashboard: React.FC = () => {
@@ -31,6 +33,9 @@ const Dashboard: React.FC = () => {
   const [statuses, setStatuses] = useState<string[]>([]);
   const [customers, setCustomers] = useState<string[]>([]);
   const [labels, setLabels] = useState<string[]>([]);
+  const [cfdData, setCfdData] = useState<Array<{ date: string; open: number; done: number }>>([]);
+  const [controlData, setControlData] = useState<{ cycle: { points: any[]; average_days: number; p85_days: number; p95_days: number }, lead: { points: any[]; average_days: number; p85_days: number; p95_days: number } }>({ cycle: { points: [], average_days: 0, p85_days: 0, p95_days: 0 }, lead: { points: [], average_days: 0, p85_days: 0, p95_days: 0 } });
+  const [controlMode, setControlMode] = useState<'cycle' | 'lead'>('cycle');
   const [resyncLoading, setResyncLoading] = useState<boolean>(false);
   const [panels, setPanels] = useState<Array<{ id: string; filters: FilterType }>>([
     { id: 'panel-1', filters: {} }
@@ -69,13 +74,18 @@ const Dashboard: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const [metricsData, forecastData] = await Promise.all([
+      const [metricsData, forecastData, cfdResp, cycleStats, leadStats] = await Promise.all([
         apiService.getMetrics(filters),
-        apiService.getForecast(30, filters.project_id, filters.user_id)
+        apiService.getForecast(30, filters.project_id, filters.user_id),
+        apiService.getCumulativeFlow({ ...filters, group_by: (filters as any)?.group_by || 'day' }),
+        apiService.getControlChart(filters),
+        apiService.getLeadTime(filters),
       ]);
 
       setMetrics(metricsData);
       setForecast(forecastData);
+      setCfdData(cfdResp.cfd || []);
+      setControlData({ cycle: cycleStats as any, lead: leadStats as any });
     } catch (err) {
       setError('Failed to fetch data. Please check if the backend is running.');
       console.error('Error fetching data:', err);
@@ -304,6 +314,37 @@ const Dashboard: React.FC = () => {
             data={projectProductivityData}
             title="Productivity by Project"
           />
+        </div>
+
+        {/* Flow + Control Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <CFDChart data={cfdData} />
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">View</div>
+              <div className="flex gap-2">
+                <button
+                  className={`h-8 px-3 rounded-md border text-sm ${controlMode === 'cycle' ? 'bg-blue-600 text-white border-blue-700' : 'bg-gray-100 text-gray-700 border-gray-300'}`}
+                  onClick={() => setControlMode('cycle')}
+                >
+                  Cycle Time
+                </button>
+                <button
+                  className={`h-8 px-3 rounded-md border text-sm ${controlMode === 'lead' ? 'bg-blue-600 text-white border-blue-700' : 'bg-gray-100 text-gray-700 border-gray-300'}`}
+                  onClick={() => setControlMode('lead')}
+                >
+                  Lead Time
+                </button>
+              </div>
+            </div>
+            <ControlChart
+              data={controlMode === 'lead' ? controlData.lead.points : controlData.cycle.points}
+              average_days={(controlMode === 'lead' ? controlData.lead.average_days : controlData.cycle.average_days) || 0}
+              p85_days={(controlMode === 'lead' ? controlData.lead.p85_days : controlData.cycle.p85_days) || 0}
+              p95_days={(controlMode === 'lead' ? controlData.lead.p95_days : controlData.cycle.p95_days) || 0}
+              mode={controlMode}
+            />
+          </div>
         </div>
 
         {/* Commits Chart */}
