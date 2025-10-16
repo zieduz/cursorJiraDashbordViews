@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from pydantic import BaseModel
 
 from ..database import get_db, SessionLocal
 from ..models import Project as ProjectModel, User as UserModel, Ticket as TicketModel
@@ -209,10 +210,16 @@ async def perform_jira_sync(
     }
 
 
+class JiraSyncRequest(BaseModel):
+    project_keys: Optional[List[str]] = None
+    created_since: Optional[str] = None
+
+
 @router.post("/sync", summary="Sync Jira issues for configured projects since a date")
 async def sync_jira(
-    project_keys: Optional[List[str]] = None,
-    created_since: Optional[str] = None,
+    project_keys: Optional[List[str]] = Query(None),
+    created_since: Optional[str] = Query(None),
+    body: Optional[JiraSyncRequest] = Body(None),
     db: Session = Depends(get_db),
 ):
     """Sync Jira issues for the provided project keys (or configured keys) created on/after a date.
@@ -220,6 +227,13 @@ async def sync_jira(
     - project_keys: List of Jira project keys. If omitted, uses `JIRA_PROJECT_KEYS` env.
     - created_since: YYYY-MM-DD. If omitted, uses `JIRA_CREATED_SINCE` (default 2025-01-01).
     """
+    # Allow both JSON body payload and query parameters
+    if body is not None:
+        if body.project_keys is not None:
+            project_keys = body.project_keys
+        if body.created_since is not None:
+            created_since = body.created_since
+
     try:
         return await perform_jira_sync(db, project_keys=project_keys, created_since=created_since)
     except ValueError as e:
