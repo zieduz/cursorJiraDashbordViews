@@ -11,6 +11,12 @@ const api = axios.create({
 });
 
 export const apiService = {
+  // Projects
+  getProjects: async (): Promise<Array<{ id: number; key: string; name: string }>> => {
+    const response = await api.get(`/api/projects/`);
+    return response.data;
+  },
+
   // Metrics
   getMetrics: async (filters?: Filters): Promise<Metrics> => {
     const params = new URLSearchParams();

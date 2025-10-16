@@ -16,6 +16,14 @@ export interface Ticket {
   resolved_at?: string;
 }
 
+export interface Project {
+  id: number;
+  key: string;
+  name: string;
+  description?: string;
+  created_at: string;
+}
+
 export interface Metrics {
   total_tickets: number;
   tickets_created: number;

@@ -9,7 +9,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { apiService } from '../services/api';
-import { Metrics, Forecast, Filters as FilterType } from '../types';
+import { Metrics, Forecast, Filters as FilterType, Project } from '../types';
 import KPICard from './KPICard';
 import Filters from './Filters';
 import ThroughputChart from './Charts/ThroughputChart';
@@ -24,12 +24,8 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Mock data for projects and users (in real app, these would come from API)
-  const projects = [
-    { id: 1, name: 'E-commerce Platform' },
-    { id: 2, name: 'Mobile App' },
-    { id: 3, name: 'Analytics Dashboard' }
-  ];
+  // Load projects and users from API (users still mocked for now)
+  const [projects, setProjects] = useState<Array<Project>>([]);
 
   const users = [
     { id: 1, display_name: 'John Doe' },
@@ -62,6 +58,16 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [filters]);
+
+  useEffect(() => {
+    // Fetch projects once on mount
+    apiService
+      .getProjects()
+      .then((data) => setProjects(data))
+      .catch((err) => {
+        console.error('Error fetching projects:', err);
+      });
+  }, []);
 
   const handleFiltersChange = (newFilters: FilterType) => {
     setFilters(newFilters);
