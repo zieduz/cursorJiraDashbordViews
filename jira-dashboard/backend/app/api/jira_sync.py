@@ -12,6 +12,22 @@ from ..config import settings
 router = APIRouter(prefix="/api/jira", tags=["jira"]) 
 
 
+def _parse_jira_datetime(value: Optional[str]) -> Optional[datetime]:
+    """Parse Jira datetime string into aware datetime.
+
+    Supports formats like '2025-01-10T12:34:56.789+0000' and without
+    fractional seconds.
+    """
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%f%z")
+    except ValueError:
+        try:
+            return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z")
+        except ValueError:
+            return None
+
 def _parse_assignee(assignee: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
     if not assignee:
         return {"jira_id": None, "email": None, "display_name": None, "avatar_url": None}
@@ -104,6 +120,17 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
                 changed = True
         ticket.project_id = project.id
         ticket.assignee_id = assignee.id if assignee else None
+
+        # Sync timestamps from Jira so charts aggregate correctly by date
+        created_dt = _parse_jira_datetime(issue_parsed.get("created_at"))
+        if created_dt and ticket.created_at != created_dt:
+            ticket.created_at = created_dt
+            changed = True
+
+        resolved_dt = _parse_jira_datetime(issue_parsed.get("resolved_at"))
+        if ticket.resolved_at != resolved_dt:
+            ticket.resolved_at = resolved_dt
+            changed = True
         if changed:
             db.add(ticket)
         return ticket
@@ -120,6 +147,8 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
         story_points=issue_parsed.get("story_points"),
         time_estimate=issue_parsed.get("time_estimate"),
         time_spent=issue_parsed.get("time_spent"),
+        created_at=_parse_jira_datetime(issue_parsed.get("created_at")),
+        resolved_at=_parse_jira_datetime(issue_parsed.get("resolved_at")),
     )
     db.add(ticket)
     db.flush()
