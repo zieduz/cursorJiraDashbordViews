@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -47,6 +47,8 @@ class TicketBase(BaseModel):
     status: str
     priority: Optional[str] = None
     issue_type: Optional[str] = None
+    customer: Optional[str] = None
+    labels: Optional[List[str]] = None
     story_points: Optional[int] = None
     time_estimate: Optional[float] = None
     time_spent: Optional[float] = None
@@ -67,6 +69,21 @@ class Ticket(TicketBase):
     
     class Config:
         from_attributes = True
+
+    # Normalize labels from comma-delimited string in DB to list for API
+    @field_validator("labels", mode="before")
+    @classmethod
+    def _normalize_labels(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            stripped = v.strip(',')
+            if not stripped:
+                return []
+            return [s for s in stripped.split(',') if s]
+        return None
 
 
 class CommitBase(BaseModel):

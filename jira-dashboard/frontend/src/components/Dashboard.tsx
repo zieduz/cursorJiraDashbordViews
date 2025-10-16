@@ -29,6 +29,8 @@ const Dashboard: React.FC = () => {
   const [projects, setProjects] = useState<Array<{ id: number; name: string; key?: string }>>([]);
   const [users, setUsers] = useState<Array<{ id: number; display_name: string }>>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
+  const [customers, setCustomers] = useState<string[]>([]);
+  const [labels, setLabels] = useState<string[]>([]);
   const [resyncLoading, setResyncLoading] = useState<boolean>(false);
 
   const triggerResync = async () => {
@@ -38,10 +40,12 @@ const Dashboard: React.FC = () => {
       await apiService.syncJira();
       // After resync completes, refresh filter options and dashboard data
       await Promise.all([
-        apiService.getFilterOptions().then(({ projects, users, statuses }) => {
+        apiService.getFilterOptions().then(({ projects, users, statuses, customers, labels }) => {
           setProjects(projects as any);
           setUsers(users);
           setStatuses(statuses);
+          setCustomers(customers || []);
+          setLabels(labels || []);
         }),
         fetchData(),
       ]);
@@ -81,10 +85,12 @@ const Dashboard: React.FC = () => {
     // Fetch filter options once on mount
     apiService
       .getFilterOptions()
-      .then(({ projects, users, statuses }) => {
+      .then(({ projects, users, statuses, customers, labels }) => {
         setProjects(projects as any);
         setUsers(users);
         setStatuses(statuses);
+        setCustomers(customers || []);
+        setLabels(labels || []);
       })
       .catch((err) => {
         console.error('Error fetching filter options:', err);
@@ -158,6 +164,8 @@ const Dashboard: React.FC = () => {
           projects={projects}
             users={users}
             statuses={statuses}
+            customers={customers}
+            labels={labels}
           />
           </div>
           <div className="flex items-end">

@@ -14,8 +14,11 @@ async def get_metrics(
     start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD) for metrics calculation"),
     end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD) for metrics calculation"),
     project_id: Optional[int] = Query(None, description="Filter by project ID"),
+    project_ids: Optional[str] = Query(None, description="Comma-separated list of project IDs"),
     user_id: Optional[int] = Query(None, description="Filter by user ID"),
     status: Optional[str] = Query(None, description="Filter by issue status"),
+    customers: Optional[str] = Query(None, description="Comma-separated list of customers"),
+    labels: Optional[str] = Query(None, description="Comma-separated list of labels"),
     db: Session = Depends(get_db)
 ):
     """Get comprehensive metrics and KPIs"""
@@ -29,12 +32,19 @@ async def get_metrics(
         end_dt = datetime.combine(end_date, dtime.max).replace(tzinfo=timezone.utc)
 
     metrics_service = MetricsService(db)
+    project_ids_list = [int(pid.strip()) for pid in project_ids.split(',')] if project_ids else None
+    customers_list = [c.strip() for c in customers.split(',')] if customers else None
+    labels_list = [l.strip() for l in labels.split(',')] if labels else None
+
     metrics = metrics_service.get_metrics(
         start_date=start_dt,
         end_date=end_dt,
         project_id=project_id,
+        project_ids=project_ids_list,
         user_id=user_id,
         status=status,
+        customers=customers_list,
+        labels=labels_list,
     )
     
     return MetricsResponse(**metrics)

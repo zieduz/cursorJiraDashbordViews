@@ -113,12 +113,22 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
             "story_points": "story_points",
             "time_estimate": "time_estimate",
             "time_spent": "time_spent",
+            "customer": "customer",
         }
         for src_key, model_attr in mapping.items():
             new_val = issue_parsed.get(src_key)
+            # Normalize labels: store as comma-delimited string for LIKE queries
+            if src_key == "labels":
+                new_val = "," + ",".join([str(v) for v in (new_val or [])]) + "," if new_val else None
             if getattr(ticket, model_attr) != new_val:
                 setattr(ticket, model_attr, new_val)
                 changed = True
+        # labels handled separately since not in mapping dict
+        labels_list = issue_parsed.get("labels") or []
+        labels_str = "," + ",".join([str(v) for v in labels_list]) + "," if labels_list else None
+        if ticket.labels != labels_str:
+            ticket.labels = labels_str
+            changed = True
         ticket.project_id = project.id
         ticket.assignee_id = assignee.id if assignee else None
 
@@ -145,6 +155,8 @@ def _ensure_ticket(db: Session, project: ProjectModel, assignee: Optional[UserMo
         status=issue_parsed.get("status") or "",
         priority=issue_parsed.get("priority"),
         issue_type=issue_parsed.get("issue_type"),
+        customer=issue_parsed.get("customer"),
+        labels=("," + ",".join([str(v) for v in (issue_parsed.get("labels") or [])]) + ",") if issue_parsed.get("labels") else None,
         story_points=issue_parsed.get("story_points"),
         time_estimate=issue_parsed.get("time_estimate"),
         time_spent=issue_parsed.get("time_spent"),

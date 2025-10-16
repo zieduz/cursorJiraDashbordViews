@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import List, Optional
 from datetime import datetime
 from ..database import get_db
@@ -12,8 +13,11 @@ router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 @router.get("/", response_model=List[Ticket])
 async def get_tickets(
     project_id: Optional[int] = Query(None, description="Filter by project ID"),
+    project_ids: Optional[str] = Query(None, description="Comma-separated project IDs"),
     user_id: Optional[int] = Query(None, description="Filter by user ID"),
     status: Optional[str] = Query(None, description="Filter by status"),
+    customers: Optional[str] = Query(None, description="Comma-separated customers"),
+    labels: Optional[str] = Query(None, description="Comma-separated labels"),
     start_date: Optional[datetime] = Query(None, description="Start date filter"),
     end_date: Optional[datetime] = Query(None, description="End date filter"),
     limit: int = Query(100, description="Number of tickets to return"),
@@ -24,13 +28,26 @@ async def get_tickets(
     
     query = db.query(TicketModel)
     
+    # Parse list params
+    project_ids_list = [int(pid.strip()) for pid in project_ids.split(',')] if project_ids else None
+    customers_list = [c.strip() for c in customers.split(',')] if customers else None
+    labels_list = [l.strip() for l in labels.split(',')] if labels else None
+
     # Apply filters
-    if project_id:
+    if project_ids_list:
+        query = query.filter(TicketModel.project_id.in_(project_ids_list))
+    elif project_id:
         query = query.filter(TicketModel.project_id == project_id)
     if user_id:
         query = query.filter(TicketModel.assignee_id == user_id)
     if status:
         query = query.filter(TicketModel.status == status)
+    if customers_list:
+        query = query.filter(TicketModel.customer.in_(customers_list))
+    if labels_list:
+        label_clauses = [TicketModel.labels.like(f"%,{lbl},%") for lbl in labels_list]
+        if label_clauses:
+            query = query.filter(or_(*label_clauses))
     if start_date:
         query = query.filter(TicketModel.created_at >= start_date)
     if end_date:

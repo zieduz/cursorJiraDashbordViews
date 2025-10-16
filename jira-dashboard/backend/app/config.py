@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     jira_api_version: int = 3
     # Story points custom field key; override per instance if different
     jira_story_points_field: str = "customfield_10016"
+    # Customer custom field key; override per instance if different
+    jira_customer_field: str = "customfield_12567"
     # Debug flag to enable verbose Jira request logging
     jira_debug: bool = False
     

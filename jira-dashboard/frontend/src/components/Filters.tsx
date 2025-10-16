@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Filter, User, FolderOpen } from 'lucide-react';
+import { Calendar, Filter, User, FolderOpen, Tag, Building2 } from 'lucide-react';
 import { Filters as FilterType } from '../types';
 
 interface FiltersProps {
@@ -8,6 +8,8 @@ interface FiltersProps {
   projects?: Array<{ id: number; name: string; key?: string }>;
   users?: Array<{ id: number; display_name: string }>;
   statuses?: string[];
+  customers?: string[];
+  labels?: string[];
 }
 
 const Filters: React.FC<FiltersProps> = ({
@@ -15,12 +17,21 @@ const Filters: React.FC<FiltersProps> = ({
   onFiltersChange,
   projects = [],
   users = [],
-  statuses = []
+  statuses = [],
+  customers = [],
+  labels = []
 }) => {
   const handleInputChange = (field: keyof FilterType, value: string | number | undefined) => {
     onFiltersChange({
       ...filters,
       [field]: value || undefined
+    });
+  };
+
+  const handleMultiChange = (field: keyof FilterType, values: (string | number)[]) => {
+    onFiltersChange({
+      ...filters,
+      [field]: values && values.length ? (values as any) : undefined,
     });
   };
 
@@ -32,18 +43,26 @@ const Filters: React.FC<FiltersProps> = ({
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Project Filter */}
+        {/* Project Filter (Multi-select) */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             <FolderOpen className="h-4 w-4 inline mr-1" />
-            Project
+            Projects
           </label>
           <select
-            value={filters.project_id || ''}
-            onChange={(e) => handleInputChange('project_id', e.target.value ? parseInt(e.target.value) : undefined)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            multiple
+            value={(filters.project_ids || []).map(String)}
+            onChange={(e) => {
+              const selected = Array.from(e.target.selectedOptions).map((o) => parseInt(o.value));
+              // When using multi-select, prefer project_ids and clear project_id
+              onFiltersChange({
+                ...filters,
+                project_ids: selected.length ? selected : undefined,
+                project_id: undefined,
+              });
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-28"
           >
-            <option value="">All Projects</option>
             {projects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}{project.key ? ` (${project.key})` : ''}
@@ -68,6 +87,48 @@ const Filters: React.FC<FiltersProps> = ({
               <option key={user.id} value={user.id}>
                 {user.display_name}
               </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Customers Multi-select */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            <Building2 className="h-4 w-4 inline mr-1" />
+            Customer
+          </label>
+          <select
+            multiple
+            value={filters.customers || []}
+            onChange={(e) => {
+              const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+              handleMultiChange('customers', selected);
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-28"
+          >
+            {customers.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Labels Multi-select */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            <Tag className="h-4 w-4 inline mr-1" />
+            Labels
+          </label>
+          <select
+            multiple
+            value={filters.labels || []}
+            onChange={(e) => {
+              const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+              handleMultiChange('labels', selected);
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-28"
+          >
+            {labels.map((l) => (
+              <option key={l} value={l}>{l}</option>
             ))}
           </select>
         </div>
