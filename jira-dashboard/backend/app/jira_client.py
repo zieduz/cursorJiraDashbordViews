@@ -36,7 +36,14 @@ class JiraClient:
                 write=getattr(settings, "jira_timeout_write_seconds", 30.0),
                 pool=getattr(settings, "jira_timeout_pool_seconds", 5.0),
             )
-            self._client = httpx.AsyncClient(timeout=timeout, http2=bool(getattr(settings, "jira_http2", True)))
+            # Prefer HTTP/2 when enabled, but gracefully fall back if 'h2' is missing
+            desired_http2 = bool(getattr(settings, "jira_http2", True))
+            try:
+                self._client = httpx.AsyncClient(timeout=timeout, http2=desired_http2)
+            except ImportError as e:
+                # httpx raises ImportError when http2=True but 'h2' is not installed
+                self._debug("HTTP/2 not available (h2 missing); falling back to HTTP/1.1")
+                self._client = httpx.AsyncClient(timeout=timeout, http2=False)
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -158,7 +165,13 @@ class JiraClient:
                 write=getattr(settings, "jira_timeout_write_seconds", 30.0),
                 pool=getattr(settings, "jira_timeout_pool_seconds", 5.0),
             )
-            ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=bool(getattr(settings, "jira_http2", True)))
+            # Prefer HTTP/2 when enabled, but gracefully fall back if 'h2' is missing
+            desired_http2 = bool(getattr(settings, "jira_http2", True))
+            try:
+                ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=desired_http2)
+            except ImportError:
+                self._debug("HTTP/2 not available for ephemeral client; using HTTP/1.1")
+                ephemeral_client = httpx.AsyncClient(timeout=timeout, http2=False)
             client = ephemeral_client
 
         max_attempts = max(1, int(getattr(settings, "jira_retry_max_attempts", 4)))
