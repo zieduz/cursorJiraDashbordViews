@@ -43,6 +43,7 @@ class MetricsService:
         project_ids: Optional[List[int]] = None,
         customers: Optional[List[str]] = None,
         labels: Optional[List[str]] = None,
+        group_by: str = "day",
     ) -> Dict:
         """Calculate comprehensive metrics"""
         def is_resolved_clause():
@@ -112,6 +113,7 @@ class MetricsService:
             labels=labels,
             start_date=start_date,
             end_date=end_date,
+            group_by=group_by or "day",
         )
         
         # Commits per issue
@@ -199,8 +201,11 @@ class MetricsService:
         labels: Optional[List[str]],
         start_date: datetime,
         end_date: datetime,
+        group_by: str = "day",
     ) -> List[Dict]:
-        """Get ticket throughput over time (daily).
+        """Get ticket throughput over time aggregated by period.
+
+        group_by: one of 'day', 'month', 'year'.
 
         Note: We intentionally do NOT constrain resolved counts by created_at.
         """
@@ -218,18 +223,43 @@ class MetricsService:
             if label_clauses:
                 non_time_filters.append(or_(*label_clauses))
 
-        daily_data: List[Dict] = []
-        current_date = start_date
+        def normalize_period_start(dt: datetime, gb: str) -> datetime:
+            if gb == "year":
+                return dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            if gb == "month":
+                return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            # day
+            return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        while current_date <= end_date:
-            next_date = current_date + timedelta(days=1)
+        def next_period(dt: datetime, gb: str) -> datetime:
+            if gb == "year":
+                return dt.replace(year=dt.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            if gb == "month":
+                if dt.month == 12:
+                    return dt.replace(year=dt.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                return dt.replace(month=dt.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            # day
+            return dt + timedelta(days=1)
+
+        gb = (group_by or "day").lower()
+        if gb not in {"day", "month", "year"}:
+            gb = "day"
+
+        data: List[Dict] = []
+        current_start = normalize_period_start(start_date, gb)
+        # Ensure we start no later than requested window
+        if current_start < start_date.replace(hour=0, minute=0, second=0, microsecond=0):
+            current_start = start_date
+
+        while current_start <= end_date:
+            next_start = next_period(current_start, gb)
 
             created_count = (
                 self.db.query(Ticket)
                 .filter(
                     *non_time_filters,
-                    Ticket.created_at >= current_date,
-                    Ticket.created_at < next_date,
+                    Ticket.created_at >= current_start,
+                    Ticket.created_at < next_start,
                 )
                 .count()
             )
@@ -239,24 +269,25 @@ class MetricsService:
                 .filter(
                     *non_time_filters,
                     Ticket.resolved_at.isnot(None),
-                    Ticket.resolved_at >= current_date,
-                    Ticket.resolved_at < next_date,
+                    Ticket.resolved_at >= current_start,
+                    Ticket.resolved_at < next_start,
                     not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
                 )
                 .count()
             )
 
-            daily_data.append(
+            # Use first day of the period for the label to ensure valid date parsing on frontend
+            data.append(
                 {
-                    "date": current_date.strftime("%Y-%m-%d"),
+                    "date": current_start.strftime("%Y-%m-%d"),
                     "created": created_count,
                     "resolved": resolved_count,
                 }
             )
 
-            current_date = next_date
+            current_start = next_start
 
-        return daily_data
+        return data
     
     def _get_commits_per_issue(self, filters: List) -> List[Dict]:
         """Get commits per issue statistics"""

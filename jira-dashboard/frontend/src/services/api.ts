@@ -40,6 +40,7 @@ export const apiService = {
     if (filters?.labels && filters.labels.length) params.append('labels', filters.labels.join(','));
     if (filters?.start_date) params.append('start_date', filters.start_date);
     if (filters?.end_date) params.append('end_date', filters.end_date);
+    if ((filters as any)?.group_by) params.append('group_by', (filters as any).group_by);
     
     const response = await api.get(`/api/metrics?${params.toString()}`);
     return response.data;

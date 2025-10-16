@@ -10,10 +10,10 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { apiService } from '../services/api';
-import { Metrics, Forecast, Filters as FilterType } from '../types';
+import { Metrics, Forecast, Filters as FilterType, AppConfig } from '../types';
 import KPICard from './KPICard';
 import Filters from './Filters';
-import ThroughputChart from './Charts/ThroughputChart';
+import ThroughputPanel from './Charts/ThroughputPanel';
 import VelocityChart from './Charts/VelocityChart';
 import ProductivityChart from './Charts/ProductivityChart';
 import CommitsChart from './Charts/CommitsChart';
@@ -32,12 +32,19 @@ const Dashboard: React.FC = () => {
   const [customers, setCustomers] = useState<string[]>([]);
   const [labels, setLabels] = useState<string[]>([]);
   const [resyncLoading, setResyncLoading] = useState<boolean>(false);
+  const [panels, setPanels] = useState<Array<{ id: string; filters: FilterType }>>([
+    { id: 'panel-1', filters: {} }
+  ]);
+  const [resyncDate, setResyncDate] = useState<string>('');
+  const [resyncProjectKeys, setResyncProjectKeys] = useState<string[]>([]);
 
   const triggerResync = async () => {
     try {
       setResyncLoading(true);
-      // Call backend sync with no params to use configured defaults
-      await apiService.syncJira();
+      // Call backend sync with selected params (fallback to configured defaults if empty)
+      const keys = resyncProjectKeys && resyncProjectKeys.length ? resyncProjectKeys : undefined;
+      const since = resyncDate || undefined;
+      await apiService.syncJira(keys, since);
       // After resync completes, refresh filter options and dashboard data
       await Promise.all([
         apiService.getFilterOptions().then(({ projects, users, statuses, customers, labels }) => {
@@ -77,23 +84,41 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const addPanel = (filtersToClone?: FilterType) => {
+    const newId = `panel-${Date.now()}`;
+    setPanels((prev) => [...prev, { id: newId, filters: filtersToClone ? { ...filtersToClone } : {} }]);
+  };
+
+  const duplicatePanel = (id: string, cloneFilters: FilterType) => {
+    addPanel(cloneFilters);
+  };
+
+  const removePanel = (id: string) => {
+    setPanels((prev) => prev.filter((p) => p.id !== id));
+  };
+
   useEffect(() => {
     fetchData();
   }, [filters]);
 
   useEffect(() => {
     // Fetch filter options once on mount
-    apiService
-      .getFilterOptions()
-      .then(({ projects, users, statuses, customers, labels }) => {
+    Promise.all([
+      apiService.getFilterOptions(),
+      apiService.getConfig(),
+    ])
+      .then(([{ projects, users, statuses, customers, labels }, config]) => {
         setProjects(projects as any);
         setUsers(users);
         setStatuses(statuses);
         setCustomers(customers || []);
         setLabels(labels || []);
+        // Prefill resync controls from backend config
+        setResyncDate((config as AppConfig).jira_created_since || '');
+        setResyncProjectKeys(((config as AppConfig).jira_project_keys || []) as string[]);
       })
       .catch((err) => {
-        console.error('Error fetching filter options:', err);
+        console.error('Error fetching initial data:', err);
       });
   }, []);
 
@@ -168,7 +193,31 @@ const Dashboard: React.FC = () => {
             labels={labels}
           />
           </div>
-          <div className="flex items-end">
+          <div className="flex flex-col items-stretch gap-2 lg:items-end">
+            <div className="flex gap-2 items-end">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Sync Since</label>
+                <input
+                  type="date"
+                  value={resyncDate}
+                  onChange={(e) => setResyncDate(e.target.value)}
+                  className="h-10 px-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Projects (Keys)</label>
+                <select
+                  multiple
+                  value={resyncProjectKeys}
+                  onChange={(e) => setResyncProjectKeys(Array.from(e.target.selectedOptions).map(o => o.value))}
+                  className="h-28 px-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {projects.filter(p => !!p.key).map((p) => (
+                    <option key={p.key} value={p.key!}>{p.key} — {p.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <button
               onClick={triggerResync}
               disabled={resyncLoading}
@@ -215,8 +264,24 @@ const Dashboard: React.FC = () => {
 
         {/* Charts Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Throughput Chart */}
-          <ThroughputChart data={metrics.ticket_throughput} />
+          {/* Clonable Throughput Panels */}
+          <div className="flex flex-col gap-6">
+            {panels.map((p) => (
+              <ThroughputPanel
+                key={p.id}
+                id={p.id}
+                initialFilters={p.filters}
+                onDuplicate={(f) => duplicatePanel(p.id, f)}
+                onRemove={() => removePanel(p.id)}
+              />
+            ))}
+            <button
+              onClick={() => addPanel({})}
+              className="self-start h-9 px-4 inline-flex items-center gap-2 rounded-md border bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200 text-sm"
+            >
+              + Add Throughput Panel
+            </button>
+          </div>
 
           {/* Velocity Forecast Chart */}
           <VelocityChart 

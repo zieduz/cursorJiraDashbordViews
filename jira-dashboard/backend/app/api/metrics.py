@@ -19,6 +19,7 @@ async def get_metrics(
     status: Optional[str] = Query(None, description="Filter by issue status"),
     customers: Optional[str] = Query(None, description="Comma-separated list of customers"),
     labels: Optional[str] = Query(None, description="Comma-separated list of labels"),
+    group_by: Optional[str] = Query("day", description="Aggregation granularity: day | month | year"),
     db: Session = Depends(get_db)
 ):
     """Get comprehensive metrics and KPIs"""
@@ -45,6 +46,7 @@ async def get_metrics(
         status=status,
         customers=customers_list,
         labels=labels_list,
+        group_by=(group_by or "day").lower(),
     )
     
     return MetricsResponse(**metrics)
