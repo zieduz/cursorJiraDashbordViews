@@ -116,8 +116,16 @@ class MetricsService:
             group_by=group_by or "day",
         )
         
-        # Commits per issue
-        commits_per_issue = self._get_commits_per_issue(filters)
+        # Commits per issue (filter by commit date within window, not ticket creation)
+        commits_per_issue = self._get_commits_per_issue(
+            start_date=start_date,
+            end_date=end_date,
+            project_ids=project_ids if project_ids else ([project_id] if project_id else None),
+            user_id=user_id,
+            status=status,
+            customers=customers,
+            labels=labels,
+        )
         
         # SLA compliance (tickets resolved on time)
         sla_compliance = self._get_sla_compliance(filters)
@@ -289,20 +297,182 @@ class MetricsService:
 
         return data
     
-    def _get_commits_per_issue(self, filters: List) -> List[Dict]:
-        """Get commits per issue statistics"""
-        query = self.db.query(
-            Ticket.jira_id,
-            func.count(Commit.id).label('commit_count')
-        ).join(Commit, Ticket.id == Commit.ticket_id).filter(*filters).group_by(Ticket.id, Ticket.jira_id)
-        
-        results = []
+    def get_cumulative_flow(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        project_ids: Optional[List[int]] = None,
+        user_id: Optional[int] = None,
+        status: Optional[str] = None,
+        customers: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+        group_by: str = "day",
+    ) -> List[Dict]:
+        """Compute Cumulative Flow data using created/resolved counts.
+
+        Returns a list of points with cumulative 'open' (created - resolved, non-negative)
+        and cumulative 'done' (resolved) per period.
+        """
+        throughput = self._get_ticket_throughput(
+            project_ids=project_ids,
+            user_id=user_id,
+            status=status,
+            customers=customers,
+            labels=labels,
+            start_date=start_date,
+            end_date=end_date,
+            group_by=group_by or "day",
+        )
+
+        cumulative_data: List[Dict] = []
+        cum_created = 0
+        cum_resolved = 0
+        for point in throughput:
+            cum_created += int(point.get("created", 0) or 0)
+            cum_resolved += int(point.get("resolved", 0) or 0)
+            open_count = max(cum_created - cum_resolved, 0)
+            cumulative_data.append(
+                {
+                    "date": point["date"],
+                    "open": open_count,
+                    "done": cum_resolved,
+                }
+            )
+
+        return cumulative_data
+
+    def get_cycle_time_metrics(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        project_ids: Optional[List[int]] = None,
+        user_id: Optional[int] = None,
+        customers: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+    ) -> Dict:
+        """Compute Control Chart (cycle time) data for resolved issues.
+
+        Cycle time is approximated as hours spent if available, otherwise
+        the elapsed time between created_at and resolved_at. Returned in days.
+        """
+        non_time_filters: List = [
+            Ticket.resolved_at.isnot(None),
+        ]
+        if project_ids:
+            non_time_filters.append(Ticket.project_id.in_(project_ids))
+        if user_id:
+            non_time_filters.append(Ticket.assignee_id == user_id)
+        if customers:
+            non_time_filters.append(Ticket.customer.in_(customers))
+        if labels:
+            label_clauses = [Ticket.labels.like(f"%,{lbl},%") for lbl in labels]
+            if label_clauses:
+                non_time_filters.append(or_(*label_clauses))
+
+        tickets = (
+            self.db.query(Ticket)
+            .filter(
+                *non_time_filters,
+                Ticket.resolved_at >= start_date,
+                Ticket.resolved_at <= end_date,
+                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
+            )
+            .all()
+        )
+
+        points: List[Dict] = []
+        values: List[float] = []
+        for t in tickets:
+            if t.time_spent is not None:
+                hours = float(t.time_spent)
+            else:
+                # Compute hours between created and resolved
+                hours = float((t.resolved_at - t.created_at).total_seconds() / 3600.0)
+            days = max(hours / 24.0, 0.0)
+            values.append(days)
+            points.append(
+                {
+                    "jira_id": t.jira_id,
+                    "cycle_time_days": days,
+                    "resolved_at": t.resolved_at.isoformat(),
+                }
+            )
+
+        def percentile(vals: List[float], p: float) -> float:
+            if not vals:
+                return 0.0
+            sv = sorted(vals)
+            k = (len(sv) - 1) * p
+            f = int(k)
+            c = min(f + 1, len(sv) - 1)
+            if f == c:
+                return sv[int(k)]
+            d0 = sv[f] * (c - k)
+            d1 = sv[c] * (k - f)
+            return d0 + d1
+
+        average_days = float(np.mean(values)) if values else 0.0
+        p85_days = float(percentile(values, 0.85)) if values else 0.0
+        p95_days = float(percentile(values, 0.95)) if values else 0.0
+
+        return {
+            "points": points,
+            "average_days": average_days,
+            "p85_days": p85_days,
+            "p95_days": p95_days,
+        }
+
+    def _get_commits_per_issue(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        project_ids: Optional[List[int]] = None,
+        user_id: Optional[int] = None,
+        status: Optional[str] = None,
+        customers: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
+    ) -> List[Dict]:
+        """Get commits per issue statistics.
+
+        Important: Filter by Commit.created_at within the requested window.
+        Apply non-time filters (project, user, status, customers, labels) on the Ticket side.
+        """
+
+        non_time_filters: List = []
+        if project_ids:
+            non_time_filters.append(Ticket.project_id.in_(project_ids))
+        if user_id:
+            non_time_filters.append(Ticket.assignee_id == user_id)
+        if status:
+            non_time_filters.append(Ticket.status == status)
+        if customers:
+            non_time_filters.append(Ticket.customer.in_(customers))
+        if labels:
+            label_clauses = [Ticket.labels.like(f"%,{lbl},%") for lbl in labels]
+            if label_clauses:
+                non_time_filters.append(or_(*label_clauses))
+
+        query = (
+            self.db.query(
+                Ticket.jira_id,
+                func.count(Commit.id).label('commit_count')
+            )
+            .join(Commit, Ticket.id == Commit.ticket_id)
+            .filter(
+                *non_time_filters,
+                Commit.created_at >= start_date,
+                Commit.created_at <= end_date,
+            )
+            .group_by(Ticket.id, Ticket.jira_id)
+        )
+
+        results: List[Dict] = []
         for row in query.all():
             results.append({
                 "ticket_id": row.jira_id,
-                "commit_count": row.commit_count or 0
+                "commit_count": row.commit_count or 0,
             })
-        
+
         return results
     
     def _get_sla_compliance(self, filters: List) -> float:

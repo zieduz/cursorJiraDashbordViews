@@ -122,18 +122,27 @@ class ForecastService:
         while current_date <= end_date:
             next_date = current_date + timedelta(days=1)
             
-            # Get story points completed on this day
-            daily_story_points = self.db.query(
-                func.sum(Ticket.story_points)
-            ).filter(
-                *filters,
-                Ticket.resolved_at >= current_date,
-                Ticket.resolved_at < next_date
-            ).scalar() or 0
+            # Prefer sum of story points when present; otherwise fallback to ticket count
+            sum_and_count = (
+                self.db.query(
+                    func.coalesce(func.sum(Ticket.story_points), 0).label("sp_sum"),
+                    func.count(Ticket.id).label("resolved_count"),
+                )
+                .filter(
+                    *filters,
+                    Ticket.resolved_at >= current_date,
+                    Ticket.resolved_at < next_date,
+                )
+                .first()
+            )
+            sp_sum = float(sum_and_count.sp_sum if sum_and_count and sum_and_count.sp_sum is not None else 0)
+            resolved_count = int(sum_and_count.resolved_count if sum_and_count and sum_and_count.resolved_count is not None else 0)
+
+            daily_value = sp_sum if sp_sum > 0 else float(resolved_count)
             
             daily_velocity.append({
                 "date": current_date.strftime("%Y-%m-%d"),
-                "velocity": float(daily_story_points)
+                "velocity": daily_value,
             })
             
             current_date = next_date
