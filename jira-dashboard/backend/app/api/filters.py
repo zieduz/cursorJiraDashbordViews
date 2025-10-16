@@ -16,6 +16,8 @@ async def get_filter_options(db: Session = Depends(get_db)) -> Dict[str, Any]:
     - projects: [{ id, name, key }]
     - users: [{ id, display_name }]
     - statuses: [str]
+    - customers: [str]
+    - labels: [str]
     """
     projects_rows = (
         db.query(ProjectModel.id, ProjectModel.name, ProjectModel.key)
@@ -44,8 +46,33 @@ async def get_filter_options(db: Session = Depends(get_db)) -> Dict[str, Any]:
     )
     statuses: List[str] = [row[0] for row in statuses_rows if row[0]]
 
+    # Distinct customers
+    customers_rows = (
+        db.query(TicketModel.customer)
+        .filter(TicketModel.customer.isnot(None))
+        .distinct()
+        .order_by(TicketModel.customer.asc())
+        .all()
+    )
+    customers: List[str] = [row[0] for row in customers_rows if row[0]]
+
+    # Distinct labels (flatten from comma-delimited storage)
+    labels_set: set[str] = set()
+    labels_rows = (
+        db.query(TicketModel.labels)
+        .filter(TicketModel.labels.isnot(None))
+        .all()
+    )
+    for (labels_str,) in labels_rows:
+        for lbl in (labels_str or "").strip(',').split(','):
+            if lbl:
+                labels_set.add(lbl)
+    labels: List[str] = sorted(labels_set)
+
     return {
         "projects": projects,
         "users": users,
         "statuses": statuses,
+        "customers": customers,
+        "labels": labels,
     }

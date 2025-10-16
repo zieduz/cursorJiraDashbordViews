@@ -20,6 +20,8 @@ class JiraClient:
         self.api_version = str(getattr(settings, "jira_api_version", 3))
         # Instance-specific story points field (may differ from 10016)
         self.story_points_field = getattr(settings, "jira_story_points_field", "customfield_10016") or None
+        # Instance-specific customer field (e.g., customfield_12567)
+        self.customer_field = getattr(settings, "jira_customer_field", "customfield_12567") or None
         # Enable verbose debug logging via env (JIRA_DEBUG=true)
         self._debug_enabled = bool(getattr(settings, "jira_debug", False))
 
@@ -144,6 +146,7 @@ class JiraClient:
             "priority",
             "issuetype",
             "assignee",
+            "labels",
             "created",
             "updated",
             "resolutiondate",
@@ -153,6 +156,9 @@ class JiraClient:
         # Include story points field if configured
         if self.story_points_field:
             fields_list.append(self.story_points_field)
+        # Include customer field if configured
+        if self.customer_field:
+            fields_list.append(self.customer_field)
 
         fields_param = ",".join(fields_list)
         params = {
@@ -242,10 +248,12 @@ class JiraClient:
             "priority": fields.get("priority", {}).get("name", ""),
             "issue_type": fields.get("issuetype", {}).get("name", ""),
             "assignee": fields.get("assignee"),
+            "labels": fields.get("labels") or [],
             "created_at": fields.get("created"),
             "updated_at": fields.get("updated"),
             "resolved_at": fields.get("resolutiondate"),
             "story_points": fields.get(self.story_points_field) if self.story_points_field else None,
+            "customer": fields.get(self.customer_field) if self.customer_field else None,
             "time_estimate": fields.get("timeestimate"),
             "time_spent": fields.get("timespent")
         }

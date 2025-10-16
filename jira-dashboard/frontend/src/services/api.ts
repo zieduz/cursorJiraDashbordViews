@@ -12,7 +12,7 @@ const api = axios.create({
 
 export const apiService = {
   // Filters options
-  getFilterOptions: async (): Promise<{ projects: Array<{ id: number; name: string; key?: string }>; users: Array<{ id: number; display_name: string }>; statuses: string[] }> => {
+  getFilterOptions: async (): Promise<{ projects: Array<{ id: number; name: string; key?: string }>; users: Array<{ id: number; display_name: string }>; statuses: string[]; customers: string[]; labels: string[] }> => {
     const response = await api.get(`/api/filters/options`);
     return response.data;
   },
@@ -33,8 +33,11 @@ export const apiService = {
   getMetrics: async (filters?: Filters): Promise<Metrics> => {
     const params = new URLSearchParams();
     if (filters?.project_id) params.append('project_id', filters.project_id.toString());
+    if (filters?.project_ids && filters.project_ids.length) params.append('project_ids', filters.project_ids.join(','));
     if (filters?.user_id) params.append('user_id', filters.user_id.toString());
     if (filters?.status) params.append('status', filters.status);
+    if (filters?.customers && filters.customers.length) params.append('customers', filters.customers.join(','));
+    if (filters?.labels && filters.labels.length) params.append('labels', filters.labels.join(','));
     if (filters?.start_date) params.append('start_date', filters.start_date);
     if (filters?.end_date) params.append('end_date', filters.end_date);
     
@@ -75,8 +78,11 @@ export const apiService = {
   getTickets: async (filters?: Filters & { limit?: number; offset?: number }): Promise<Ticket[]> => {
     const params = new URLSearchParams();
     if (filters?.project_id) params.append('project_id', filters.project_id.toString());
+    if (filters?.project_ids && filters.project_ids.length) params.append('project_ids', filters.project_ids.join(','));
     if (filters?.user_id) params.append('user_id', filters.user_id.toString());
     if (filters?.status) params.append('status', filters.status);
+    if (filters?.customers && filters.customers.length) params.append('customers', filters.customers.join(','));
+    if (filters?.labels && filters.labels.length) params.append('labels', filters.labels.join(','));
     if (filters?.start_date) params.append('start_date', filters.start_date);
     if (filters?.end_date) params.append('end_date', filters.end_date);
     if (filters?.limit) params.append('limit', filters.limit.toString());

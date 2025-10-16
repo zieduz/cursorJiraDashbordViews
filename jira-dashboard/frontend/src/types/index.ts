@@ -8,6 +8,8 @@ export interface Ticket {
   status: string;
   priority?: string;
   issue_type?: string;
+  customer?: string;
+  labels?: string[];
   story_points?: number;
   time_estimate?: number;
   time_spent?: number;
@@ -77,8 +79,11 @@ export interface Forecast {
 
 export interface Filters {
   project_id?: number;
+  project_ids?: number[];
   user_id?: number;
   status?: string;
+  customers?: string[];
+  labels?: string[];
   start_date?: string;
   end_date?: string;
 }

@@ -44,6 +44,10 @@ class Ticket(Base):
     status = Column(String(50), nullable=False)  # To Do, In Progress, Done, etc.
     priority = Column(String(20))  # High, Medium, Low
     issue_type = Column(String(50))  # Story, Bug, Task, etc.
+    # Customer (from Jira custom field, e.g., customfield_12567)
+    customer = Column(String(200))
+    # Comma-delimited labels string with leading/trailing commas for LIKE matching: ",bug,backend,"
+    labels = Column(Text)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

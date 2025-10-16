@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, not_
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from ..models import Ticket, User, Project, Commit
@@ -18,8 +18,37 @@ class MetricsService:
         project_id: Optional[int] = None,
         user_id: Optional[int] = None,
         status: Optional[str] = None,
+        project_ids: Optional[List[int]] = None,
+        customers: Optional[List[str]] = None,
+        labels: Optional[List[str]] = None,
     ) -> Dict:
         """Calculate comprehensive metrics"""
+        # Define non-resolved statuses (case-insensitive match)
+        non_resolved_statuses = set(
+            s.lower()
+            for s in [
+                "ready for dev",
+                "open",
+                "in progress",
+                "waiting",
+                "waiting for factory",
+                "created",
+                "reopened",
+                "to be configured",
+                "blocked",
+                "confirmed",
+                "draft",
+                "pending",
+                "in coding",
+                "waiting for information",
+            ]
+        )
+
+        def is_resolved_clause():
+            return and_(
+                Ticket.resolved_at.isnot(None),
+                not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+            )
         
         # Set default date range if not provided
         if not end_date:
@@ -29,24 +58,43 @@ class MetricsService:
         
         # Base query filters
         filters = [Ticket.created_at >= start_date, Ticket.created_at <= end_date]
-        if project_id:
+        if project_ids:
+            filters.append(Ticket.project_id.in_(project_ids))
+        elif project_id:
             filters.append(Ticket.project_id == project_id)
         if user_id:
             filters.append(Ticket.assignee_id == user_id)
         if status:
             filters.append(Ticket.status == status)
+        if customers:
+            filters.append(Ticket.customer.in_(customers))
+        if labels:
+            # labels stored as comma-delimited string, match any
+            label_clauses = [Ticket.labels.like(f"%,{lbl},%") for lbl in labels]
+            if label_clauses:
+                filters.append(or_(*label_clauses))
         
         # Total tickets
         total_tickets = self.db.query(Ticket).filter(*filters).count()
         
         # Tickets by status
         tickets_created = self.db.query(Ticket).filter(*filters).count()
-        tickets_resolved = self.db.query(Ticket).filter(
-            *filters, Ticket.status == "Done"
-        ).count()
-        tickets_in_progress = self.db.query(Ticket).filter(
-            *filters, Ticket.status.in_(["In Progress", "Code Review", "Testing"])
-        ).count()
+        tickets_resolved = (
+            self.db.query(Ticket)
+            .filter(
+                *filters,
+                is_resolved_clause(),
+            )
+            .count()
+        )
+        tickets_in_progress = (
+            self.db.query(Ticket)
+            .filter(
+                *filters,
+                func.lower(Ticket.status).in_(list(non_resolved_statuses)),
+            )
+            .count()
+        )
         
         # Productivity per user
         productivity_per_user = self._get_productivity_per_user(filters)
@@ -56,9 +104,11 @@ class MetricsService:
         
         # Ticket throughput over time
         ticket_throughput = self._get_ticket_throughput(
-            project_id=project_id,
+            project_ids=project_ids if project_ids else ([project_id] if project_id else None),
             user_id=user_id,
             status=status,
+            customers=customers,
+            labels=labels,
             start_date=start_date,
             end_date=end_date,
         )
@@ -90,7 +140,12 @@ class MetricsService:
         query = self.db.query(
             User.display_name,
             func.count(Ticket.id).label('tickets_created'),
-            func.count(Ticket.id).filter(Ticket.status == "Done").label('tickets_resolved'),
+            func.count(Ticket.id).filter(
+                and_(
+                    Ticket.resolved_at.isnot(None),
+                    not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                )
+            ).label('tickets_resolved'),
             func.avg(Ticket.story_points).label('avg_story_points'),
             func.avg(Ticket.time_spent).label('avg_time_spent')
         ).join(Ticket, User.id == Ticket.assignee_id).filter(*filters).group_by(User.id, User.display_name)
@@ -112,7 +167,12 @@ class MetricsService:
         query = self.db.query(
             Project.name,
             func.count(Ticket.id).label('tickets_created'),
-            func.count(Ticket.id).filter(Ticket.status == "Done").label('tickets_resolved'),
+            func.count(Ticket.id).filter(
+                and_(
+                    Ticket.resolved_at.isnot(None),
+                    not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                )
+            ).label('tickets_resolved'),
             func.avg(Ticket.story_points).label('avg_story_points'),
             func.sum(Ticket.story_points).label('total_story_points')
         ).join(Ticket, Project.id == Ticket.project_id).filter(*filters).group_by(Project.id, Project.name)
@@ -131,9 +191,11 @@ class MetricsService:
     
     def _get_ticket_throughput(
         self,
-        project_id: Optional[int],
+        project_ids: Optional[List[int]],
         user_id: Optional[int],
         status: Optional[str],
+        customers: Optional[List[str]],
+        labels: Optional[List[str]],
         start_date: datetime,
         end_date: datetime,
     ) -> List[Dict]:
@@ -142,12 +204,18 @@ class MetricsService:
         Note: We intentionally do NOT constrain resolved counts by created_at.
         """
         non_time_filters: List = []
-        if project_id:
-            non_time_filters.append(Ticket.project_id == project_id)
+        if project_ids:
+            non_time_filters.append(Ticket.project_id.in_(project_ids))
         if user_id:
             non_time_filters.append(Ticket.assignee_id == user_id)
         if status:
             non_time_filters.append(Ticket.status == status)
+        if customers:
+            non_time_filters.append(Ticket.customer.in_(customers))
+        if labels:
+            label_clauses = [Ticket.labels.like(f"%,{lbl},%") for lbl in labels]
+            if label_clauses:
+                non_time_filters.append(or_(*label_clauses))
 
         daily_data: List[Dict] = []
         current_date = start_date
@@ -172,6 +240,7 @@ class MetricsService:
                     Ticket.resolved_at.isnot(None),
                     Ticket.resolved_at >= current_date,
                     Ticket.resolved_at < next_date,
+                    not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
                 )
                 .count()
             )
@@ -210,18 +279,26 @@ class MetricsService:
         sla_days = 7
         sla_cutoff = datetime.now(timezone.utc) - timedelta(days=sla_days)
         
-        total_resolved = self.db.query(Ticket).filter(
-            *filters, 
-            Ticket.status == "Done",
-            Ticket.resolved_at.isnot(None)
-        ).count()
+        total_resolved = (
+            self.db.query(Ticket)
+            .filter(
+                *filters,
+                Ticket.resolved_at.isnot(None),
+                not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+            )
+            .count()
+        )
         
-        on_time_resolved = self.db.query(Ticket).filter(
-            *filters,
-            Ticket.status == "Done",
-            Ticket.resolved_at.isnot(None),
-            Ticket.resolved_at <= Ticket.created_at + timedelta(days=sla_days)
-        ).count()
+        on_time_resolved = (
+            self.db.query(Ticket)
+            .filter(
+                *filters,
+                Ticket.resolved_at.isnot(None),
+                not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
+                Ticket.resolved_at <= Ticket.created_at + timedelta(days=sla_days),
+            )
+            .count()
+        )
         
         if total_resolved == 0:
             return 0.0
@@ -236,8 +313,8 @@ class MetricsService:
             )
         ).filter(
             *filters,
-            Ticket.status == "Done",
-            Ticket.resolved_at.isnot(None)
+            Ticket.resolved_at.isnot(None),
+            not_(func.lower(Ticket.status).in_(list(non_resolved_statuses))),
         )
         
         result = query.scalar()
