@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
+import asyncio
 import re
 from pydantic import BaseModel
 
@@ -300,6 +301,43 @@ async def perform_jira_sync(
         raise ValueError("created_since must be a valid date (YYYY-MM-DD or similar)")
     created_since = normalized
 
+    # In-memory caches to reduce repetitive DB lookups during a single sync run
+    users_cache_by_jira_id: Dict[str, UserModel] = {}
+    users_cache_by_email: Dict[str, UserModel] = {}
+    tickets_cache_by_jira: Dict[str, TicketModel] = {}
+
+    async def get_or_create_user_cached(assignee_info: Dict[str, Optional[str]]) -> Optional[UserModel]:
+        jira_id = (assignee_info or {}).get("jira_id")
+        email = (assignee_info or {}).get("email")
+        # Try cache by jira_id then email
+        if jira_id and jira_id in users_cache_by_jira_id:
+            return users_cache_by_jira_id[jira_id]
+        if email and email in users_cache_by_email:
+            return users_cache_by_email[email]
+        user = _ensure_user(db, assignee_info)
+        if user:
+            if user.jira_id:
+                users_cache_by_jira_id[user.jira_id] = user
+            if user.email:
+                users_cache_by_email[user.email] = user
+        return user
+
+    def upsert_ticket_cached(
+        project: ProjectModel,
+        assignee: Optional[UserModel],
+        issue_parsed: Dict[str, Any],
+        first_resolved_at: Optional[datetime] = None,
+    ) -> TicketModel:
+        jira_id = issue_parsed.get("jira_id")
+        if jira_id and jira_id in tickets_cache_by_jira:
+            # Already upserted during this run; return cached object
+            return tickets_cache_by_jira[jira_id]
+        ticket = _ensure_ticket(db, project, assignee, issue_parsed, first_resolved_at=first_resolved_at)
+        if jira_id:
+            tickets_cache_by_jira[jira_id] = ticket
+        return ticket
+
+    # Create a reusable Jira client with persistent connections
     client = JiraClient()
     total_projects = 0
     total_issues = 0
@@ -317,45 +355,74 @@ async def perform_jira_sync(
         # Swallow project list errors; we can still sync issues via keys
         pass
 
-    for key in project_keys:
-        total_projects += 1
+    try:
+        for key in project_keys:
+            total_projects += 1
         jira_project = jira_projects_index.get(key, {})
         project_name = jira_project.get("name") or key
         project_desc = jira_project.get("description") if isinstance(jira_project.get("description"), str) else None
 
         project = _ensure_project(db, key=key, name=project_name, description=project_desc)
 
-        start_at = 0
-        while True:
-            data = await client.get_project_issues(
-                project_key=key,
-                start_at=start_at,
-                max_results=100,
-                created_since=created_since,
-            )
+        page_size = int(getattr(settings, "jira_page_size", 100) or 100)
+        concurrency = int(getattr(settings, "jira_sync_concurrency", 5) or 5)
+        expand_changelog = bool(getattr(settings, "jira_expand_changelog", True))
+
+        # Fetch first page to determine total and seed processing
+        first_page = await client.get_project_issues(
+            project_key=key,
+            start_at=0,
+            max_results=page_size,
+            created_since=created_since,
+            expand_changelog=expand_changelog,
+        )
+        all_pages: List[Dict[str, Any]] = [first_page]
+        total = int(first_page.get("total", 0) or 0)
+        if total > page_size:
+            start_ats = list(range(page_size, total, page_size))
+            sem = asyncio.Semaphore(concurrency)
+
+            async def fetch_page(start_at: int):
+                async with sem:
+                    return await client.get_project_issues(
+                        project_key=key,
+                        start_at=start_at,
+                        max_results=page_size,
+                        created_since=created_since,
+                        expand_changelog=expand_changelog,
+                    )
+
+            tasks = [asyncio.create_task(fetch_page(sa)) for sa in start_ats]
+            if tasks:
+                fetched = await asyncio.gather(*tasks, return_exceptions=False)
+                all_pages.extend(fetched)
+
+        # Process issues sequentially to avoid concurrent ORM writes
+        for data in all_pages:
             issues = data.get("issues", [])
             if not issues:
-                break
-
+                continue
             for issue in issues:
                 parsed = client.parse_issue(issue)
                 assignee_info = _parse_assignee(parsed.get("assignee"))
-                user = _ensure_user(db, assignee_info)
+                user = await get_or_create_user_cached(assignee_info)
                 # Determine earliest resolved/done transition time from changelog
                 first_resolved_at = _compute_first_resolved_datetime(issue)
-                _ensure_ticket(db, project, user, parsed, first_resolved_at=first_resolved_at)
+                upsert_ticket_cached(project, user, parsed, first_resolved_at=first_resolved_at)
                 total_issues += 1
                 if user:
                     upserted_users += 1
                 upserted_tickets += 1
 
-            start_at += 100
-            if len(issues) < 100:
-                break
+            upserted_projects += 1
 
-        upserted_projects += 1
-
-    db.commit()
+        db.commit()
+    finally:
+        # Ensure HTTP connections are closed after sync
+        try:
+            await client.aclose()
+        except Exception:
+            pass
 
     return {
         "projects_processed": total_projects,

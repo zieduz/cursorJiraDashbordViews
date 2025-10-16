@@ -24,6 +24,8 @@ class JiraClient:
         self.customer_field = getattr(settings, "jira_customer_field", "customfield_12567") or None
         # Enable verbose debug logging via env (JIRA_DEBUG=true)
         self._debug_enabled = bool(getattr(settings, "jira_debug", False))
+        # Persistent HTTP client for connection reuse
+        self._client: Optional[httpx.AsyncClient] = None
 
     def _mask_value(self, value: Optional[str], show_start: int = 2, show_end: int = 2) -> str:
         """Return a masked representation of a potentially sensitive value."""
@@ -130,27 +132,44 @@ class JiraClient:
         # Apply conservative network timeouts so failed Jira connections
         # don't hang the sync indefinitely. These can be tuned via
         # environment in the future if needed.
-        timeout = httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        if self._client is None:
+            timeout = httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0)
+            # Enable HTTP/2 when supported by Jira (Cloud supports it)
+            self._client = httpx.AsyncClient(timeout=timeout, http2=True)
+
+        try:
+            response = await self._client.get(url, auth=auth, params=params or {}, headers=headers)
+            response.raise_for_status()
+            self._debug(
+                f"Response: status={response.status_code}, url={str(response.request.url)}"
+            )
+        except httpx.HTTPStatusError as e:
+            resp = e.response
+            req = resp.request if resp is not None else None
+            method = req.method if req is not None else "GET"
+            req_url = str(req.url) if req is not None else url
+            status = resp.status_code if resp is not None else "unknown"
+            body_preview = (resp.text or "")[:500] if resp is not None else ""
+            print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
+            self._debug(
+                f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={auth_mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
+            )
+            raise
+        return response.json()
+
+    async def aclose(self) -> None:
+        """Close the underlying HTTP client if open."""
+        if self._client is not None:
             try:
-                response = await client.get(url, auth=auth, params=params or {}, headers=headers)
-                response.raise_for_status()
-                self._debug(
-                    f"Response: status={response.status_code}, url={str(response.request.url)}"
-                )
-            except httpx.HTTPStatusError as e:
-                resp = e.response
-                req = resp.request if resp is not None else None
-                method = req.method if req is not None else "GET"
-                req_url = str(req.url) if req is not None else url
-                status = resp.status_code if resp is not None else "unknown"
-                body_preview = (resp.text or "")[:500] if resp is not None else ""
-                print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
-                self._debug(
-                    f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={auth_mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
-                )
-                raise
-            return response.json()
+                await self._client.aclose()
+            finally:
+                self._client = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.aclose()
     
     async def get_projects(self) -> List[Dict]:
         """Fetch all projects"""
@@ -167,6 +186,7 @@ class JiraClient:
         start_at: int = 0,
         max_results: int = 100,
         created_since: Optional[str] = None,
+        expand_changelog: Optional[bool] = None,
     ) -> Dict:
         """Fetch issues for a specific project.
 
@@ -205,10 +225,12 @@ class JiraClient:
             "startAt": start_at,
             "maxResults": max_results,
             "fields": fields_param,
-            # Include changelog so we can compute the first transition to a
-            # resolved/done status (earliest exit from NON_RESOLVED_STATUSES)
-            "expand": "changelog",
         }
+        # Include changelog only when requested; this significantly increases payload size
+        if expand_changelog is None:
+            expand_changelog = bool(getattr(settings, "jira_expand_changelog", True))
+        if expand_changelog:
+            params["expand"] = "changelog"
         
         try:
             self._debug(
