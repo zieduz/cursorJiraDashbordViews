@@ -144,3 +144,34 @@ async def get_control_chart(
         labels=labels_list,
     )
     return result
+
+
+@router.get("/lead-time")
+async def get_lead_time(
+    start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    project_id: Optional[int] = Query(None, description="Filter by project ID"),
+    project_ids: Optional[str] = Query(None, description="Comma-separated list of project IDs"),
+    user_id: Optional[int] = Query(None, description="Filter by user ID"),
+    customers: Optional[str] = Query(None, description="Comma-separated list of customers"),
+    labels: Optional[str] = Query(None, description="Comma-separated list of labels"),
+    db: Session = Depends(get_db),
+):
+    # Default window
+    end_dt = datetime.combine(end_date, dtime.max).replace(tzinfo=timezone.utc) if end_date else datetime.now(timezone.utc)
+    start_dt = datetime.combine(start_date, dtime.min).replace(tzinfo=timezone.utc) if start_date else end_dt - timedelta(days=30)
+
+    metrics_service = MetricsService(db)
+    project_ids_list = [int(pid.strip()) for pid in project_ids.split(',')] if project_ids else ([project_id] if project_id else None)
+    customers_list = [c.strip() for c in customers.split(',')] if customers else None
+    labels_list = [l.strip() for l in labels.split(',')] if labels else None
+
+    result = metrics_service.get_lead_time_metrics(
+        start_date=start_dt,
+        end_date=end_dt,
+        project_ids=project_ids_list,
+        user_id=user_id,
+        customers=customers_list,
+        labels=labels_list,
+    )
+    return result

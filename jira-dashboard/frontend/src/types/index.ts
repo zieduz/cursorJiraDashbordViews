@@ -91,6 +91,26 @@ export interface Filters {
   group_by?: Granularity;
 }
 
+export interface CumulativeFlowPoint {
+  date: string;
+  open: number;
+  done: number;
+}
+
+export interface ControlChartPoint {
+  jira_id: string;
+  cycle_time_days?: number;
+  lead_time_days?: number;
+  resolved_at: string;
+}
+
+export interface DurationStats {
+  points: ControlChartPoint[];
+  average_days: number;
+  p85_days: number;
+  p95_days: number;
+}
+
 export interface AppConfig {
   jira_project_keys: string[];
   jira_created_since: string;
