@@ -11,6 +11,9 @@ class JiraClient:
         self.base_url = (settings.jira_base_url or "").rstrip("/")
         self.username = settings.jira_username
         self.api_token = settings.jira_api_token
+        # Auth configuration
+        self.auth_type = (getattr(settings, "jira_auth_type", "basic") or "basic").lower()
+        self.bearer_token = getattr(settings, "jira_bearer_token", "")
         self.client_id = settings.jira_client_id
         self.client_secret = settings.jira_client_secret
         # Allow API version to be configured (e.g., 2 for Jira Server/DC)
@@ -35,8 +38,20 @@ class JiraClient:
     async def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """Make authenticated request to Jira API"""
         url = f"{self.base_url}/rest/api/{self.api_version}/{endpoint.lstrip('/')}"
-        auth = (self.username, self.api_token) if self.username and self.api_token else None
+        auth = None
         headers = {"Accept": "application/json"}
+
+        # Determine auth strategy
+        if self.auth_type == "bearer":
+            if self.bearer_token:
+                headers["Authorization"] = f"Bearer {self.bearer_token}"
+            else:
+                # Fall back to basic if bearer is selected but missing
+                if self.username and self.api_token:
+                    auth = (self.username, self.api_token)
+        else:
+            if self.username and self.api_token:
+                auth = (self.username, self.api_token)
         
         # Pre-request debug logging (without exposing secrets)
         self._debug(
@@ -44,13 +59,24 @@ class JiraClient:
             + (self.base_url or "<unset>")
             + f", api_version={self.api_version}, story_points_field={self.story_points_field or '<none>'}"
         )
+        auth_mode = self.auth_type
+        auth_configured = (
+            (auth_mode == "bearer" and bool(headers.get("Authorization")))
+            or (auth_mode != "bearer" and bool(auth))
+        )
         self._debug(
             "Auth: configured="
-            + ("yes" if auth else "no")
+            + ("yes" if auth_configured else "no")
+            + f", mode={auth_mode}"
             + f", username_present={'yes' if bool(self.username) else 'no'}"
-            + f", token_present={'yes' if bool(self.api_token) else 'no'}"
+            + f", basic_token_present={'yes' if bool(self.api_token) else 'no'}"
+            + f", bearer_present={'yes' if bool(self.bearer_token) else 'no'}"
             + (f", username_masked={self._mask_value(self.username)}" if self.username else "")
         )
+
+        # Warn for likely misconfiguration: Jira DC often uses api v2
+        if self.api_version == "3" and ("atlassian.net" not in (self.base_url or "")):
+            self._debug("Warning: Using API v3 with non-Cloud base URL; Jira DC often requires v2")
         if params is not None:
             # Keep JQL visible for troubleshooting; truncate if extremely long
             jql_val = params.get("jql")
@@ -80,7 +106,7 @@ class JiraClient:
                 body_preview = (resp.text or "")[:500] if resp is not None else ""
                 print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
                 self._debug(
-                    f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_configured={'yes' if auth else 'no'}"
+                    f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={auth_mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
                 )
                 raise
             return response.json()
