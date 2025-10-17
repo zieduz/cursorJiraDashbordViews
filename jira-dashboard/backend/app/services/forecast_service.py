@@ -7,7 +7,6 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from ..models import Ticket
-from .metrics_service import NON_RESOLVED_STATUSES
 
 
 class ForecastService:
@@ -107,11 +106,10 @@ class ForecastService:
                                user_id: Optional[int] = None) -> List[Dict]:
         """Get historical velocity data (story points completed per day)"""
         
-        # Base filters: treat any status not in NON_RESOLVED_STATUSES as resolved
-        # This aligns the forecast with metrics calculations
+        # Base filters: treat a ticket as resolved if it has a resolved_at timestamp
+        # This aligns the forecast with metrics calculations and the new definitions
         filters = [
             Ticket.resolved_at.isnot(None),
-            not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
         ]
         if project_id:
             filters.append(Ticket.project_id == project_id)

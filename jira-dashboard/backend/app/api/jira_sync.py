@@ -118,6 +118,36 @@ def _compute_first_resolved_datetime(issue: Dict[str, Any]) -> Optional[datetime
     except Exception:
         return None
 
+
+def _compute_first_started_datetime(issue: Dict[str, Any]) -> Optional[datetime]:
+    """Return the first datetime when the issue transitioned to 'In Progress'.
+
+    Expects Jira search result with changelog expanded (expand=changelog).
+    """
+    try:
+        changelog = (issue or {}).get("changelog", {})
+        histories = changelog.get("histories", []) if isinstance(changelog, dict) else []
+        candidate_times: List[datetime] = []
+        for history in histories:
+            created_str = history.get("created")
+            created_dt = _parse_jira_datetime(created_str)
+            if not created_dt:
+                continue
+            for item in history.get("items", []) or []:
+                try:
+                    if (item.get("field") or "").lower() != "status":
+                        continue
+                    to_status = (item.get("toString") or "").strip().lower()
+                    if to_status == "in progress":
+                        candidate_times.append(created_dt)
+                except Exception:
+                    continue
+        if not candidate_times:
+            return None
+        return min(candidate_times)
+    except Exception:
+        return None
+
 def _parse_assignee(assignee: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
     if not assignee:
         return {"jira_id": None, "email": None, "display_name": None, "avatar_url": None}
@@ -194,6 +224,7 @@ def _ensure_ticket(
     assignee: Optional[UserModel],
     issue_parsed: Dict[str, Any],
     first_resolved_at: Optional[datetime] = None,
+    first_started_at: Optional[datetime] = None,
 ) -> TicketModel:
     jira_id = issue_parsed["jira_id"]
     ticket = db.query(TicketModel).filter(TicketModel.jira_id == jira_id).first()
@@ -276,6 +307,7 @@ def _ensure_ticket(
         time_estimate=issue_parsed.get("time_estimate"),
         time_spent=issue_parsed.get("time_spent"),
         created_at=_parse_jira_datetime(issue_parsed.get("created_at")),
+        started_at=first_started_at,
         # Prefer earliest transition to a resolved/done status if available
         resolved_at=(first_resolved_at or _parse_jira_datetime(issue_parsed.get("resolved_at"))),
     )
@@ -435,9 +467,14 @@ async def perform_jira_sync(
                         if user.email:
                             users_by_email[user.email] = user
 
-                # Determine earliest resolved/done transition time from changelog (optional)
+                # Determine earliest resolved/done and started (In Progress) transition times from changelog (optional)
                 first_resolved_at = (
                     _compute_first_resolved_datetime(issue)
+                    if bool(getattr(settings, "jira_include_changelog", True))
+                    else None
+                )
+                first_started_at = (
+                    _compute_first_started_datetime(issue)
                     if bool(getattr(settings, "jira_include_changelog", True))
                     else None
                 )
@@ -490,10 +527,13 @@ async def perform_jira_sync(
                     if ticket.resolved_at != resolved_dt:
                         ticket.resolved_at = resolved_dt
                         changed = True
+                    if first_started_at and ticket.started_at != first_started_at:
+                        ticket.started_at = first_started_at
+                        changed = True
                     if changed:
                         db.add(ticket)
                 else:
-                    _ensure_ticket(db, project, user, parsed, first_resolved_at=first_resolved_at)
+                    _ensure_ticket(db, project, user, parsed, first_resolved_at=first_resolved_at, first_started_at=first_started_at)
                 total_issues += 1
                 if user:
                     upserted_users += 1

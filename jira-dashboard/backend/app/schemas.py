@@ -65,6 +65,7 @@ class Ticket(TicketBase):
     assignee_id: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
     
     class Config:

@@ -47,10 +47,9 @@ class MetricsService:
     ) -> Dict:
         """Calculate comprehensive metrics"""
         def is_resolved_clause():
-            return and_(
-                Ticket.resolved_at.isnot(None),
-                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
-            )
+            # Consider a ticket resolved/done once it has a first done date (resolved_at set)
+            # regardless of its current status (it may have been reopened later).
+            return Ticket.resolved_at.isnot(None)
         
         # Set default date range if not provided
         if not end_date:
@@ -152,10 +151,7 @@ class MetricsService:
             User.display_name,
             func.count(Ticket.id).label('tickets_created'),
             func.count(Ticket.id).filter(
-                and_(
-                    Ticket.resolved_at.isnot(None),
-                    not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
-                )
+                Ticket.resolved_at.isnot(None)
             ).label('tickets_resolved'),
             func.avg(Ticket.story_points).label('avg_story_points'),
             func.avg(Ticket.time_spent).label('avg_time_spent')
@@ -179,10 +175,7 @@ class MetricsService:
             Project.name,
             func.count(Ticket.id).label('tickets_created'),
             func.count(Ticket.id).filter(
-                and_(
-                    Ticket.resolved_at.isnot(None),
-                    not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
-                )
+                Ticket.resolved_at.isnot(None)
             ).label('tickets_resolved'),
             func.avg(Ticket.story_points).label('avg_story_points'),
             func.sum(Ticket.story_points).label('total_story_points')
@@ -284,7 +277,6 @@ class MetricsService:
                     Ticket.resolved_at.isnot(None),
                     Ticket.resolved_at >= current_start,
                     Ticket.resolved_at < next_start,
-                    not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
                 )
                 .count()
             )
@@ -358,7 +350,8 @@ class MetricsService:
         """Compute Control Chart (cycle time) data for resolved issues.
 
         Cycle time is approximated as hours spent if available, otherwise
-        the elapsed time between created_at and resolved_at. Returned in days.
+        the elapsed time between started_at (first 'In Progress') and resolved_at,
+        falling back to created_at when started_at is not available. Returned in days.
         """
         non_time_filters: List = [
             Ticket.resolved_at.isnot(None),
@@ -380,7 +373,7 @@ class MetricsService:
                 *non_time_filters,
                 Ticket.resolved_at >= start_date,
                 Ticket.resolved_at <= end_date,
-                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
+                # Consider done when a done date exists, regardless of current status
             )
             .all()
         )
@@ -391,8 +384,9 @@ class MetricsService:
             if t.time_spent is not None:
                 hours = float(t.time_spent)
             else:
-                # Compute hours between created and resolved
-                hours = float((t.resolved_at - t.created_at).total_seconds() / 3600.0)
+                # Compute hours between started_at (if available) and resolved
+                start_dt = t.started_at if getattr(t, 'started_at', None) else t.created_at
+                hours = float((t.resolved_at - start_dt).total_seconds() / 3600.0)
             days = max(hours / 24.0, 0.0)
             values.append(days)
             points.append(
@@ -461,7 +455,7 @@ class MetricsService:
                 *non_time_filters,
                 Ticket.resolved_at >= start_date,
                 Ticket.resolved_at <= end_date,
-                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
+                # Consider done when a done date exists, regardless of current status
             )
             .all()
         )
@@ -569,7 +563,6 @@ class MetricsService:
             .filter(
                 *filters,
                 Ticket.resolved_at.isnot(None),
-                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
             )
             .count()
         )
@@ -579,7 +572,6 @@ class MetricsService:
             .filter(
                 *filters,
                 Ticket.resolved_at.isnot(None),
-                not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
                 Ticket.resolved_at <= Ticket.created_at + timedelta(days=sla_days),
             )
             .count()
@@ -592,14 +584,17 @@ class MetricsService:
     
     def _get_average_resolution_time(self, filters: List) -> float:
         """Calculate average resolution time in hours"""
+        # Average time from start of active work to resolution; fallback to created_at when started_at missing
         query = self.db.query(
             func.avg(
-                func.extract('epoch', Ticket.resolved_at - Ticket.created_at) / 3600
+                func.extract(
+                    'epoch',
+                    Ticket.resolved_at - func.coalesce(Ticket.started_at, Ticket.created_at)
+                ) / 3600
             )
         ).filter(
             *filters,
             Ticket.resolved_at.isnot(None),
-            not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
         )
         
         result = query.scalar()
