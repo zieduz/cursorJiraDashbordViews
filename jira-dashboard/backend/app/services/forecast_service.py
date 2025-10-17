@@ -106,10 +106,11 @@ class ForecastService:
                                user_id: Optional[int] = None) -> List[Dict]:
         """Get historical velocity data (story points completed per day)"""
         
-        # Base filters: treat a ticket as resolved if it has a resolved_at timestamp
-        # This aligns the forecast with metrics calculations and the new definitions
+        # Base filters: consider done only when resolved_at is set AND
+        # the current status is not in NON_RESOLVED_STATUSES
         filters = [
             Ticket.resolved_at.isnot(None),
+            ~func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES)),
         ]
         if project_id:
             filters.append(Ticket.project_id == project_id)
