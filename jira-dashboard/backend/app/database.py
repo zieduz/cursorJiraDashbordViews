@@ -61,6 +61,8 @@ def ensure_schema(engine) -> None:
     # Timestamps
     if "updated_at" not in ticket_columns:
         alter_statements.append("ALTER TABLE tickets ADD COLUMN updated_at TIMESTAMPTZ")
+    if "started_at" not in ticket_columns:
+        alter_statements.append("ALTER TABLE tickets ADD COLUMN started_at TIMESTAMPTZ")
     if "resolved_at" not in ticket_columns:
         alter_statements.append("ALTER TABLE tickets ADD COLUMN resolved_at TIMESTAMPTZ")
 

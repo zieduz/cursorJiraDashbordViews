@@ -51,6 +51,8 @@ class Ticket(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    # First time the ticket entered 'In Progress' (start of active work)
+    started_at = Column(DateTime(timezone=True))
     resolved_at = Column(DateTime(timezone=True))
     
     story_points = Column(Integer)

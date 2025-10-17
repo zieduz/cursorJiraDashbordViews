@@ -47,6 +47,8 @@ class MetricsService:
     ) -> Dict:
         """Calculate comprehensive metrics"""
         def is_resolved_clause():
+            # Consider a ticket done when it has a resolved_at and its status
+            # is currently outside NON_RESOLVED_STATUSES (i.e., a done status).
             return and_(
                 Ticket.resolved_at.isnot(None),
                 not_(func.lower(Ticket.status).in_(list(NON_RESOLVED_STATUSES))),
@@ -358,7 +360,8 @@ class MetricsService:
         """Compute Control Chart (cycle time) data for resolved issues.
 
         Cycle time is approximated as hours spent if available, otherwise
-        the elapsed time between created_at and resolved_at. Returned in days.
+        the elapsed time between started_at (first 'In Progress') and resolved_at,
+        falling back to created_at when started_at is not available. Returned in days.
         """
         non_time_filters: List = [
             Ticket.resolved_at.isnot(None),
@@ -391,8 +394,9 @@ class MetricsService:
             if t.time_spent is not None:
                 hours = float(t.time_spent)
             else:
-                # Compute hours between created and resolved
-                hours = float((t.resolved_at - t.created_at).total_seconds() / 3600.0)
+                # Compute hours between started_at (if available) and resolved
+                start_dt = t.started_at if getattr(t, 'started_at', None) else t.created_at
+                hours = float((t.resolved_at - start_dt).total_seconds() / 3600.0)
             days = max(hours / 24.0, 0.0)
             values.append(days)
             points.append(
@@ -592,9 +596,13 @@ class MetricsService:
     
     def _get_average_resolution_time(self, filters: List) -> float:
         """Calculate average resolution time in hours"""
+        # Average time from start of active work to resolution; fallback to created_at when started_at missing
         query = self.db.query(
             func.avg(
-                func.extract('epoch', Ticket.resolved_at - Ticket.created_at) / 3600
+                func.extract(
+                    'epoch',
+                    Ticket.resolved_at - func.coalesce(Ticket.started_at, Ticket.created_at)
+                ) / 3600
             )
         ).filter(
             *filters,
