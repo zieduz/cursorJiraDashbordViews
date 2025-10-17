@@ -1,16 +1,27 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Optional, Dict, Any, Tuple, Set
 import asyncio
 from datetime import datetime
 import re
 from pydantic import BaseModel
+import logging
 
 from ..database import get_db, SessionLocal
 from ..models import Project as ProjectModel, User as UserModel, Ticket as TicketModel
 from ..jira_client import JiraClient
 from ..services.metrics_service import NON_RESOLVED_STATUSES
 from ..config import settings
+from ..exceptions import (
+    JiraConnectionError,
+    JiraAuthenticationError,
+    JiraAPIError,
+    DatabaseError,
+    ValidationError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api/jira", tags=["jira"]) 
@@ -325,13 +336,13 @@ async def perform_jira_sync(
     if project_keys is None or len(project_keys) == 0:
         project_keys = settings.jira_project_keys
     if not project_keys:
-        raise ValueError("No project keys provided or configured")
+        raise ValidationError("No project keys provided or configured")
 
     # Trim whitespace/quotes to avoid malformed JQL and 401 from bad caching layers
     created_since = (created_since or settings.jira_created_since or "").strip().strip('"').strip("'")
     normalized = _normalize_created_since(created_since)
     if not normalized:
-        raise ValueError("created_since must be a valid date (YYYY-MM-DD or similar)")
+        raise ValidationError("created_since must be a valid date (YYYY-MM-DD or similar)")
     created_since = normalized
 
     # Concurrency settings for page fetches
@@ -372,8 +383,11 @@ async def perform_jira_sync(
             for p in all_projects:
                 if p and isinstance(p, dict) and p.get("key"):
                     jira_projects_index[p["key"]] = p
-        except Exception:
-            # Swallow project list errors; we can still sync issues via keys
+        except (JiraConnectionError, JiraAuthenticationError, JiraAPIError) as e:
+            logger.warning(f"Failed to fetch project list from Jira: {e.message}. Will continue with provided keys.")
+        except Exception as e:
+            # Swallow other project list errors; we can still sync issues via keys
+            logger.warning(f"Unexpected error fetching project list: {e}")
             pass
 
         for key in project_keys:
@@ -382,10 +396,25 @@ async def perform_jira_sync(
             project_name = jira_project.get("name") or key
             project_desc = jira_project.get("description") if isinstance(jira_project.get("description"), str) else None
 
-            project = _ensure_project(db, key=key, name=project_name, description=project_desc)
+            try:
+                project = _ensure_project(db, key=key, name=project_name, description=project_desc)
+            except SQLAlchemyError as e:
+                logger.error(f"Database error while ensuring project {key}: {e}")
+                raise DatabaseError(
+                    message=f"Failed to create or update project {key}",
+                    detail={"project_key": key, "error": str(e)}
+                )
 
             # Fetch first page to determine total, then fetch remaining pages concurrently
-            first_page = await fetch_page(client, key, 0)
+            try:
+                first_page = await fetch_page(client, key, 0)
+            except (JiraConnectionError, JiraAuthenticationError, JiraAPIError) as e:
+                logger.error(f"Failed to fetch issues for project {key}: {e.message}")
+                # Continue with next project instead of failing entire sync
+                continue
+            except Exception as e:
+                logger.error(f"Unexpected error fetching issues for project {key}: {e}")
+                continue
             issues_first = first_page.get("issues", [])
             total_found = int(first_page.get("total", len(issues_first)))
 
@@ -541,10 +570,26 @@ async def perform_jira_sync(
 
             upserted_projects += 1
             # Commit changes for this project before moving to the next
-            db.commit()
+            try:
+                db.commit()
+            except SQLAlchemyError as e:
+                logger.error(f"Failed to commit changes for project {key}: {e}")
+                db.rollback()
+                raise DatabaseError(
+                    message=f"Failed to save changes for project {key}",
+                    detail={"project_key": key, "error": str(e)}
+                )
 
     # Final safety commit (no-op if nothing pending)
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to commit final changes: {e}")
+        db.rollback()
+        raise DatabaseError(
+            message="Failed to save final changes",
+            detail={"error": str(e)}
+        )
 
     return {
         "projects_processed": total_projects,
@@ -583,24 +628,35 @@ async def sync_jira(
 
     try:
         return await perform_jira_sync(db, project_keys=project_keys, created_since=created_since)
+    except (ValidationError, JiraConnectionError, JiraAuthenticationError, JiraAPIError, DatabaseError):
+        # Re-raise our custom exceptions - they will be handled by the exception handler
+        raise
     except ValueError as e:
+        # Handle legacy ValueError for backwards compatibility
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Unexpected error during Jira sync: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during sync")
 
 
 async def run_startup_sync() -> None:
     """Run Jira sync at app startup if credentials and keys are configured."""
     required = [settings.jira_base_url, settings.jira_username, settings.jira_api_token]
     if not all(required) or not settings.jira_project_keys:
-        print("Skipping Jira startup sync: missing Jira credentials or project keys")
+        logger.info("Skipping Jira startup sync: missing Jira credentials or project keys")
         return
 
     db = SessionLocal()
     try:
         result = await perform_jira_sync(db)
-        print(
+        logger.info(
             f"Jira startup sync completed: projects={result['projects_processed']} issues={result['issues_processed']}"
         )
+    except (JiraConnectionError, JiraAuthenticationError, JiraAPIError) as e:
+        logger.error(f"Jira startup sync failed - Jira API error: {e.message}")
+    except DatabaseError as e:
+        logger.error(f"Jira startup sync failed - Database error: {e.message}")
     except Exception as e:
-        print(f"Jira startup sync failed: {e}")
+        logger.exception(f"Jira startup sync failed with unexpected error: {e}")
     finally:
         db.close()

@@ -267,7 +267,7 @@ class JiraClient:
                             method = req.method if req is not None else "GET"
                             req_url = str(req.url) if req is not None else url
                             body_preview = (resp.text or "")[:500] if resp is not None else ""
-                            print(
+                            logger.warning(
                                 f"Jira API {method} {req_url} failed with {status_code}: {body_preview}"
                             )
                             self._debug(
@@ -285,11 +285,20 @@ class JiraClient:
                             req_url = str(req.url) if req is not None else url
                             status = resp.status_code if resp is not None else "unknown"
                             body_preview = (resp.text or "")[:500] if resp is not None else ""
-                            print(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
+                            logger.error(f"Jira API {method} {req_url} failed with {status}: {body_preview}")
                             self._debug(
                                 f"Failure details: base_url={self.base_url}, api_version={self.api_version}, auth_mode={mode}, auth_header={'yes' if 'Authorization' in headers else 'no'}"
                             )
-                            raise
+                            raise JiraAPIError(
+                                message=f"Jira API request failed with status {status}",
+                                status_code=status if isinstance(status, int) else 502,
+                                detail={
+                                    "method": method,
+                                    "url": req_url,
+                                    "status": status,
+                                    "response": body_preview,
+                                }
+                            )
                         # Compute backoff (respect Retry-After when present)
                         retry_after = 0.0
                         try:
@@ -308,8 +317,15 @@ class JiraClient:
                         last_error = e
                     except (httpx.TimeoutException, httpx.RequestError) as e:
                         if attempt >= max_attempts - 1:
-                            print(f"Jira API GET {url} failed after {max_attempts} attempts: {e}")
-                            raise
+                            logger.error(f"Jira API GET {url} failed after {max_attempts} attempts: {e}")
+                            raise JiraConnectionError(
+                                message=f"Failed to connect to Jira API after {max_attempts} attempts",
+                                detail={
+                                    "url": url,
+                                    "error": str(e),
+                                    "error_type": type(e).__name__,
+                                }
+                            )
                         backoff = min(max_backoff, base_backoff * (2 ** attempt))
                         backoff *= (0.5 + random.random())
                         self._debug(
@@ -320,8 +336,23 @@ class JiraClient:
                         last_error = e
             # No candidate succeeded
             if last_error:
+                # Check if it's an authentication error (401/403)
+                if isinstance(last_error, httpx.HTTPStatusError):
+                    status_code = last_error.response.status_code if last_error.response else None
+                    if status_code in (401, 403):
+                        raise JiraAuthenticationError(
+                            message="All authentication methods failed for Jira API",
+                            detail={
+                                "url": url,
+                                "auth_candidates_tried": len(auth_candidates),
+                                "status_code": status_code,
+                            }
+                        )
                 raise last_error
-            raise RuntimeError("All authentication candidates failed for Jira request")
+            raise JiraAuthenticationError(
+                message="All authentication candidates failed for Jira request",
+                detail={"url": url, "auth_candidates_tried": len(auth_candidates)}
+            )
         finally:
             if ephemeral_client is not None:
                 try:
@@ -334,9 +365,15 @@ class JiraClient:
         try:
             data = await self._make_request("project")
             return data
+        except (JiraConnectionError, JiraAuthenticationError, JiraAPIError):
+            # Re-raise our custom exceptions
+            raise
         except Exception as e:
-            print(f"Error fetching projects: {e}")
-            return []
+            logger.error(f"Error fetching projects: {e}")
+            raise JiraAPIError(
+                message="Failed to fetch projects from Jira",
+                detail={"error": str(e), "error_type": type(e).__name__}
+            )
     
     async def get_project_issues(
         self,
@@ -401,24 +438,43 @@ class JiraClient:
                 f"Searching issues: project={project_key}, created_since={created_since}, startAt={start_at}, maxResults={max_results}, fields={fields_param}"
             )
             return await self._make_request("search", params)
-        except httpx.HTTPStatusError as e:
+        except JiraAPIError as e:
             # Retry without story points field if Jira rejects unknown/invalid field on this instance
+            resp_text = str(e.detail.get("response", "")) if e.detail else ""
+            if self.story_points_field and self.story_points_field in resp_text:
+                try:
+                    fields_without_sp = ",".join([f for f in fields_list if f != self.story_points_field])
+                    retry_params = dict(params, fields=fields_without_sp)
+                    logger.warning(
+                        f"Retrying search for project {project_key} without story points field '{self.story_points_field}'"
+                    )
+                    return await self._make_request("search", retry_params)
+                except Exception as retry_e:
+                    logger.error(f"Error fetching issues for project {project_key} after retry: {retry_e}")
+                    return {"issues": []}
+            logger.error(f"Error fetching issues for project {project_key}: {e}")
+            return {"issues": []}
+        except httpx.HTTPStatusError as e:
+            # Handle legacy HTTPStatusError for backwards compatibility
             resp_text = e.response.text if e.response is not None else ""
             if self.story_points_field and self.story_points_field in resp_text:
                 try:
                     fields_without_sp = ",".join([f for f in fields_list if f != self.story_points_field])
                     retry_params = dict(params, fields=fields_without_sp)
-                    print(
+                    logger.warning(
                         f"Retrying search for project {project_key} without story points field '{self.story_points_field}'"
                     )
                     return await self._make_request("search", retry_params)
                 except Exception as retry_e:
-                    print(f"Error fetching issues for project {project_key} after retry: {retry_e}")
+                    logger.error(f"Error fetching issues for project {project_key} after retry: {retry_e}")
                     return {"issues": []}
-            print(f"Error fetching issues for project {project_key}: {e}")
+            logger.error(f"Error fetching issues for project {project_key}: {e}")
             return {"issues": []}
+        except (JiraConnectionError, JiraAuthenticationError):
+            # Re-raise connection and auth errors
+            raise
         except Exception as e:
-            print(f"Error fetching issues for project {project_key}: {e}")
+            logger.error(f"Error fetching issues for project {project_key}: {e}")
             return {"issues": []}
     
     async def get_all_issues(self, project_keys: List[str] = None) -> List[Dict]:
@@ -460,9 +516,15 @@ class JiraClient:
                 params = {"username": "", "maxResults": 1000}
             data = await self._make_request(endpoint, params)
             return data
+        except (JiraConnectionError, JiraAuthenticationError, JiraAPIError):
+            # Re-raise our custom exceptions
+            raise
         except Exception as e:
-            print(f"Error fetching users: {e}")
-            return []
+            logger.error(f"Error fetching users: {e}")
+            raise JiraAPIError(
+                message="Failed to fetch users from Jira",
+                detail={"error": str(e), "error_type": type(e).__name__}
+            )
     
     def parse_issue(self, issue: Dict) -> Dict:
         """Parse Jira issue into our format"""
