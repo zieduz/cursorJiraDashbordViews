@@ -359,7 +359,8 @@ class JiraClient:
         if created_since:
             # Jira JQL expects dates quoted in YYYY-MM-DD format
             jql_parts.append(f'created >= "{created_since}"')
-        jql = " AND ".join(jql_parts)
+        # Add explicit ordering to stabilize pagination across pages
+        jql = " AND ".join(jql_parts) + " ORDER BY created ASC"
         fields_list = [
             "summary",
             # Description can be large; include based on config

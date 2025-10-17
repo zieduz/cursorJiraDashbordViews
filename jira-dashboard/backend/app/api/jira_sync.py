@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Set
 import asyncio
 from datetime import datetime
 import re
@@ -375,6 +375,8 @@ async def perform_jira_sync(
 
             if not all_issues:
                 upserted_projects += 1
+                # Commit project upsert early to reduce transaction length
+                db.commit()
                 continue
 
             # Preload existing tickets for this project to avoid N lookups
@@ -384,9 +386,37 @@ async def perform_jira_sync(
                 for t in db.query(TicketModel).filter(TicketModel.jira_id.in_(jira_ids)).all():
                     existing_tickets[t.jira_id] = t
 
-            # Upsert all issues
+            # Pre-parse issues and collect assignee identifiers for bulk user preload
+            parsed_issues: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+            assignee_ids: Set[str] = set()
+            assignee_emails: Set[str] = set()
             for issue in all_issues:
                 parsed = client.parse_issue(issue)
+                parsed_issues.append((issue, parsed))
+                ai = _parse_assignee(parsed.get("assignee"))
+                jid = (ai.get("jira_id") or "").strip()
+                eml = (ai.get("email") or "").strip()
+                if jid:
+                    assignee_ids.add(jid)
+                if eml:
+                    assignee_emails.add(eml)
+
+            # Bulk preload users by jira_id and email, populate caches
+            if assignee_ids:
+                for u in db.query(UserModel).filter(UserModel.jira_id.in_(list(assignee_ids))).all():
+                    if u.jira_id:
+                        users_by_jira_id[u.jira_id] = u
+                    if u.email:
+                        users_by_email[u.email] = u
+            if assignee_emails:
+                for u in db.query(UserModel).filter(UserModel.email.in_(list(assignee_emails))).all():
+                    if u.email:
+                        users_by_email[u.email] = u
+                    if u.jira_id:
+                        users_by_jira_id[u.jira_id] = u
+
+            # Upsert all issues
+            for issue, parsed in parsed_issues:
                 assignee_info = _parse_assignee(parsed.get("assignee"))
 
                 # User cache lookup
@@ -405,8 +435,12 @@ async def perform_jira_sync(
                         if user.email:
                             users_by_email[user.email] = user
 
-                # Determine earliest resolved/done transition time from changelog
-                first_resolved_at = _compute_first_resolved_datetime(issue)
+                # Determine earliest resolved/done transition time from changelog (optional)
+                first_resolved_at = (
+                    _compute_first_resolved_datetime(issue)
+                    if bool(getattr(settings, "jira_include_changelog", True))
+                    else None
+                )
 
                 existing = existing_tickets.get(parsed["jira_id"]) if parsed.get("jira_id") else None
                 if existing:
@@ -466,7 +500,10 @@ async def perform_jira_sync(
                 upserted_tickets += 1
 
             upserted_projects += 1
+            # Commit changes for this project before moving to the next
+            db.commit()
 
+    # Final safety commit (no-op if nothing pending)
     db.commit()
 
     return {
