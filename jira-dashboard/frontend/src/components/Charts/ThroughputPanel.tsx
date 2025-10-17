@@ -21,6 +21,10 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
   const [statuses, setStatuses] = useState<string[]>([]);
   const [customers, setCustomers] = useState<string[]>([]);
   const [labels, setLabels] = useState<string[]>([]);
+  const [showMA, setShowMA] = useState<boolean>(false);
+  const [maType, setMaType] = useState<'EMA' | 'SMA'>('EMA');
+  const [maPeriod, setMaPeriod] = useState<number>(7);
+  const [maSource, setMaSource] = useState<'created' | 'resolved'>('resolved');
 
   const fetchThroughput = async () => {
     try {
@@ -169,6 +173,49 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
               </select>
             </div>
           </div>
+          {/* Moving Average Overlay Controls */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">
+              <input
+                type="checkbox"
+                className="mr-1 align-middle"
+                checked={showMA}
+                onChange={(e) => setShowMA(e.target.checked)}
+              />
+              <span>Moving Average</span>
+            </label>
+            <select
+              value={maType}
+              onChange={(e) => setMaType(e.target.value as 'EMA' | 'SMA')}
+              className="px-2 py-1 border border-gray-300 rounded-md text-sm"
+              disabled={!showMA}
+            >
+              <option value="EMA">EMA</option>
+              <option value="SMA">SMA</option>
+            </select>
+            <label className="text-sm text-gray-600">Period</label>
+            <select
+              value={maPeriod}
+              onChange={(e) => setMaPeriod(parseInt(e.target.value))}
+              className="px-2 py-1 border border-gray-300 rounded-md text-sm"
+              disabled={!showMA}
+            >
+              <option value={7}>7</option>
+              <option value={14}>14</option>
+              <option value={30}>30</option>
+              <option value={60}>60</option>
+            </select>
+            <label className="text-sm text-gray-600">Source</label>
+            <select
+              value={maSource}
+              onChange={(e) => setMaSource(e.target.value as 'created' | 'resolved')}
+              className="px-2 py-1 border border-gray-300 rounded-md text-sm"
+              disabled={!showMA}
+            >
+              <option value="resolved">Resolved</option>
+              <option value="created">Created</option>
+            </select>
+          </div>
         </div>
         <div className="flex items-center gap-2 pl-4">
           <button
@@ -201,7 +248,13 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
         {error ? (
           <div className="text-red-600 text-sm">{error}</div>
         ) : (
-          <ThroughputChart data={data} />
+          <ThroughputChart 
+            data={data}
+            showMovingAverage={showMA}
+            maType={maType}
+            maPeriod={maPeriod}
+            maSource={maSource}
+          />
         )}
       </div>
     </div>
