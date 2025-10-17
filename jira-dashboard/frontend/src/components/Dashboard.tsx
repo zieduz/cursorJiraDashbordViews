@@ -18,6 +18,8 @@ import VelocityChart from './Charts/VelocityChart';
 import ProductivityChart from './Charts/ProductivityChart';
 import CFDChart from './Charts/CFDChart';
 import ControlChart from './Charts/ControlChart';
+import EMAChart from './Charts/EMAChart';
+import BurnChart from './Charts/BurnChart';
 import CommitsChart from './Charts/CommitsChart';
 
 const Dashboard: React.FC = () => {
@@ -301,6 +303,19 @@ const Dashboard: React.FC = () => {
               upper: forecast.confidence_interval[index]?.upper
             }))}
             showConfidenceInterval={true}
+          />
+        </div>
+
+        {/* EMA + Burn Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <EMAChart
+            data={metrics.ticket_throughput}
+            period={7}
+            sourceKey="resolved"
+          />
+          <BurnChart
+            data={metrics.ticket_throughput}
+            mode="burnup"
           />
         </div>
 
