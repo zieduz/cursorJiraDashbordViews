@@ -44,6 +44,8 @@ const Dashboard: React.FC = () => {
   ]);
   const [resyncDate, setResyncDate] = useState<string>('');
   const [resyncProjectKeys, setResyncProjectKeys] = useState<string[]>([]);
+  const [forecastDaysAhead, setForecastDaysAhead] = useState<number>(30);
+  const [showVelocityCI, setShowVelocityCI] = useState<boolean>(true);
 
   const triggerResync = async () => {
     try {
@@ -78,7 +80,7 @@ const Dashboard: React.FC = () => {
 
       const [metricsData, forecastData, cfdResp, cycleStats, leadStats] = await Promise.all([
         apiService.getMetrics(filters),
-        apiService.getForecast(30, filters.project_id, filters.user_id),
+        apiService.getForecast(forecastDaysAhead, filters.project_id, filters.user_id),
         apiService.getCumulativeFlow({ ...filters, group_by: (filters as any)?.group_by || 'day' }),
         apiService.getControlChart(filters),
         apiService.getLeadTime(filters),
@@ -111,7 +113,7 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [filters]);
+  }, [filters, forecastDaysAhead]);
 
   useEffect(() => {
     // Fetch filter options once on mount
@@ -296,14 +298,40 @@ const Dashboard: React.FC = () => {
           </div>
 
           {/* Velocity Forecast Chart */}
-          <VelocityChart 
-            data={forecast.predicted_velocity.map((item, index) => ({
-              ...item,
-              lower: forecast.confidence_interval[index]?.lower,
-              upper: forecast.confidence_interval[index]?.upper
-            }))}
-            showConfidenceInterval={true}
-          />
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">Forecast Settings</div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Horizon</label>
+                <select
+                  value={forecastDaysAhead}
+                  onChange={(e) => setForecastDaysAhead(parseInt(e.target.value))}
+                  className="h-8 px-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value={14}>14</option>
+                  <option value={30}>30</option>
+                  <option value={60}>60</option>
+                  <option value={90}>90</option>
+                </select>
+                <label className="text-sm text-gray-600 flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={showVelocityCI}
+                    onChange={(e) => setShowVelocityCI(e.target.checked)}
+                  />
+                  <span>Confidence Interval</span>
+                </label>
+              </div>
+            </div>
+            <VelocityChart 
+              data={forecast.predicted_velocity.map((item, index) => ({
+                ...item,
+                lower: forecast.confidence_interval[index]?.lower,
+                upper: forecast.confidence_interval[index]?.upper
+              }))}
+              showConfidenceInterval={showVelocityCI}
+            />
+          </div>
         </div>
 
         {/* EMA + Burn Charts */}
