@@ -25,13 +25,29 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
   const [maType, setMaType] = useState<'EMA' | 'SMA'>('EMA');
   const [maPeriod, setMaPeriod] = useState<number>(7);
   const [maSource, setMaSource] = useState<'created' | 'resolved'>('resolved');
+  const [overlayByCustomer, setOverlayByCustomer] = useState<boolean>(false);
+  const [overlayMetric, setOverlayMetric] = useState<'created' | 'resolved'>('resolved');
+  const [overlaySeries, setOverlaySeries] = useState<Array<{ name: string; data: Metrics['ticket_throughput'] }>>([]);
 
   const fetchThroughput = async () => {
     try {
       setLoading(true);
       setError(null);
-      const metrics = await apiService.getMetrics(filters);
-      setData(metrics.ticket_throughput);
+      if (overlayByCustomer && (filters.customers && filters.customers.length > 0)) {
+        const customers = filters.customers as string[];
+        const series = await Promise.all(
+          customers.map(async (c) => {
+            const m = await apiService.getMetrics({ ...filters, customers: [c] });
+            return { name: c, data: m.ticket_throughput };
+          })
+        );
+        setOverlaySeries(series);
+        setData(series[0]?.data || []);
+      } else {
+        const metrics = await apiService.getMetrics(filters);
+        setData(metrics.ticket_throughput);
+        setOverlaySeries([]);
+      }
     } catch (e) {
       setError('Failed to load throughput');
     } finally {
@@ -49,7 +65,9 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
     }).catch(() => {});
     fetchThroughput();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(filters), overlayByCustomer]);
+
+  // Refetch when overlay toggled, handled above in deps
 
   return (
     <div className="bg-white rounded-lg shadow-md border border-gray-200">
@@ -188,7 +206,7 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
               value={maType}
               onChange={(e) => setMaType(e.target.value as 'EMA' | 'SMA')}
               className="px-2 py-1 border border-gray-300 rounded-md text-sm"
-              disabled={!showMA}
+              disabled={!showMA || overlayByCustomer}
             >
               <option value="EMA">EMA</option>
               <option value="SMA">SMA</option>
@@ -198,7 +216,7 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
               value={maPeriod}
               onChange={(e) => setMaPeriod(parseInt(e.target.value))}
               className="px-2 py-1 border border-gray-300 rounded-md text-sm"
-              disabled={!showMA}
+              disabled={!showMA || overlayByCustomer}
             >
               <option value={7}>7</option>
               <option value={14}>14</option>
@@ -210,7 +228,27 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
               value={maSource}
               onChange={(e) => setMaSource(e.target.value as 'created' | 'resolved')}
               className="px-2 py-1 border border-gray-300 rounded-md text-sm"
-              disabled={!showMA}
+              disabled={!showMA || overlayByCustomer}
+            >
+              <option value="resolved">Resolved</option>
+              <option value="created">Created</option>
+            </select>
+            <span className="mx-2 text-gray-300">|</span>
+            <label className="text-sm text-gray-600">
+              <input
+                type="checkbox"
+                className="mr-1 align-middle"
+                checked={overlayByCustomer}
+                onChange={(e) => setOverlayByCustomer(e.target.checked)}
+              />
+              <span>Overlay by Customer</span>
+            </label>
+            <label className={`text-sm text-gray-600 ${!overlayByCustomer ? 'opacity-50' : ''}`}>Metric</label>
+            <select
+              value={overlayMetric}
+              onChange={(e) => setOverlayMetric(e.target.value as 'created' | 'resolved')}
+              className="px-2 py-1 border border-gray-300 rounded-md text-sm"
+              disabled={!overlayByCustomer}
             >
               <option value="resolved">Resolved</option>
               <option value="created">Created</option>
@@ -250,10 +288,12 @@ const ThroughputPanel: React.FC<ThroughputPanelProps> = ({ id, initialFilters, o
         ) : (
           <ThroughputChart 
             data={data}
-            showMovingAverage={showMA}
+            showMovingAverage={showMA && !overlayByCustomer}
             maType={maType}
             maPeriod={maPeriod}
             maSource={maSource}
+            overlaySeries={overlayByCustomer ? overlaySeries : []}
+            overlayMetric={overlayMetric}
           />
         )}
       </div>
