@@ -1,3 +1,8 @@
+"""Pydantic schemas for API requests and responses.
+
+These models define the shape of data exchanged between the frontend and the
+FastAPI backend, separate from the database ORM models.
+"""
 from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import datetime
@@ -14,6 +19,7 @@ class ProjectCreate(ProjectBase):
 
 
 class Project(ProjectBase):
+    """Project response model returned by the API."""
     id: int
     created_at: datetime
     
@@ -33,6 +39,7 @@ class UserCreate(UserBase):
 
 
 class User(UserBase):
+    """User response model returned by the API."""
     id: int
     created_at: datetime
     
@@ -60,6 +67,7 @@ class TicketCreate(TicketBase):
 
 
 class Ticket(TicketBase):
+    """Ticket/issue response model returned by the API."""
     id: int
     project_id: int
     assignee_id: Optional[int] = None
@@ -75,6 +83,7 @@ class Ticket(TicketBase):
     @field_validator("labels", mode="before")
     @classmethod
     def _normalize_labels(cls, v):
+        """Normalize labels field from DB string to list for API output."""
         if v is None:
             return None
         if isinstance(v, list):
@@ -99,6 +108,7 @@ class CommitCreate(CommitBase):
 
 
 class Commit(CommitBase):
+    """Commit response model linked to a ticket and project."""
     id: int
     ticket_id: int
     project_id: int
@@ -111,6 +121,7 @@ class Commit(CommitBase):
 
 # Metrics and Forecast Schemas
 class MetricsResponse(BaseModel):
+    """Aggregate metrics used by dashboard KPIs and charts."""
     total_tickets: int
     tickets_created: int
     tickets_resolved: int
@@ -124,6 +135,7 @@ class MetricsResponse(BaseModel):
 
 
 class ForecastResponse(BaseModel):
+    """Forecast output including daily velocity and confidence intervals."""
     predicted_velocity: List[dict]
     confidence_interval: List[dict]
     trend: str
@@ -131,6 +143,7 @@ class ForecastResponse(BaseModel):
 
 
 class TicketFilters(BaseModel):
+    """Common filter parameters for ticket list endpoints."""
     project_id: Optional[int] = None
     user_id: Optional[int] = None
     status: Optional[str] = None

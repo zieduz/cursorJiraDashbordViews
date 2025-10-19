@@ -1,3 +1,11 @@
+"""API router aggregation for the Jira Performance Dashboard backend.
+
+This package exposes a single `api_router` that mounts all versionless
+endpoint groups (tickets, metrics, forecast, Jira sync, projects, config,
+and filters). Import and include `api_router` in the FastAPI application
+to register all routes under their respective prefixes.
+"""
+
 from fastapi import APIRouter
 from .tickets import router as tickets_router
 from .metrics import router as metrics_router

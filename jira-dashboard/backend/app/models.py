@@ -1,3 +1,8 @@
+"""ORM models defining projects, users, tickets, and commits.
+
+These SQLAlchemy models back the Jira Performance Dashboard. Relationships are
+kept simple to facilitate analytical queries for metrics and charts.
+"""
 from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -5,6 +10,10 @@ from .database import Base
 
 
 class Project(Base):
+    """Project entity representing a Jira project.
+
+    Contains a stable key, human-readable name, and optional description.
+    """
     __tablename__ = "projects"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -18,6 +27,10 @@ class Project(Base):
 
 
 class User(Base):
+    """User entity representing a Jira user/assignee.
+
+    Stores identifiers and display information used in metrics aggregation.
+    """
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -32,6 +45,11 @@ class User(Base):
 
 
 class Ticket(Base):
+    """Ticket/issue entity synchronized from Jira.
+
+    Includes lifecycle timestamps to support cycle/lead-time calculations and
+    additional attributes used for filtering and grouping.
+    """
     __tablename__ = "tickets"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -65,6 +83,10 @@ class Ticket(Base):
 
 
 class Commit(Base):
+    """Commit entity linked to a ticket and project.
+
+    Enables commits-per-issue and related productivity metrics.
+    """
     __tablename__ = "commits"
     
     id = Column(Integer, primary_key=True, index=True)

@@ -1,3 +1,8 @@
+"""Business logic for computing metrics and chart datasets.
+
+This service aggregates tickets and related entities to produce KPI summaries,
+throughput series, cumulative flow data, and duration statistics.
+"""
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, not_
 from datetime import datetime, timedelta, timezone
@@ -30,6 +35,7 @@ NON_RESOLVED_STATUSES = set(
 
 
 class MetricsService:
+    """Encapsulates metrics calculations against the relational database."""
     def __init__(self, db: Session):
         self.db = db
     
