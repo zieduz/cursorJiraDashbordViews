@@ -36,8 +36,8 @@ anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY els
 # Workspace paths
 WORKSPACE_ROOT = Path("/workspace")
 PROMPTS_DIR = WORKSPACE_ROOT / "doc" / "prompts"
-OUTPUT_DIR = WORKSPACE_ROOT / "generated_code"
-LOGS_DIR = WORKSPACE_ROOT / "development_logs"
+OUTPUT_DIR = WORKSPACE_ROOT / "agentic" / "generated_code"
+LOGS_DIR = WORKSPACE_ROOT / "agentic" / "development_logs"
 
 # Create directories
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

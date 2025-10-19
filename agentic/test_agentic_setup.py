@@ -67,8 +67,8 @@ except ImportError:
 print("\n4️⃣  Checking directory structure...")
 workspace = Path("/workspace")
 prompts_dir = workspace / "doc" / "prompts"
-output_dir = workspace / "generated_code"
-logs_dir = workspace / "development_logs"
+output_dir = workspace / "agentic" / "generated_code"
+logs_dir = workspace / "agentic" / "development_logs"
 
 dirs_ok = True
 if prompts_dir.exists():
