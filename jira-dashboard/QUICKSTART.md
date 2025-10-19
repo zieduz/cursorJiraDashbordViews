@@ -61,7 +61,6 @@ docker-compose up -d --build
    ```
 
 ### Customization
-- Modify `backend/app/mock_data.py` for different sample data
 - Update `frontend/src/components/` for UI changes
 - Adjust forecasting parameters in `backend/app/services/forecast_service.py`
 
