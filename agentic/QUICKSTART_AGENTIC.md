@@ -80,7 +80,7 @@ python develop_jira_auth.py
 ```
 
 The workflow will:
-1. 📖 Load requirements from `doc/prompts/`
+1. 📖 Load requirements from `prompts/`
 2. 🏗️  Design the system architecture
 3. 🔍 Review and refine the design
 4. 💻 Generate code for all components
@@ -177,7 +177,7 @@ pip install -r requirements_agentic.txt
 **Solution:**
 ```bash
 # Make sure prompts exist
-ls doc/prompts/
+ls prompts/
 
 # Should see:
 # - user_prompt.md
@@ -321,8 +321,8 @@ Requirements → Design → Review → Develop → Review → Test → Refine �
 ## 📚 Learn More
 
 - Full documentation: `README_AGENTIC_WORKFLOW.md`
-- User requirements: `doc/prompts/user_prompt.md`
-- Technical details: `doc/prompts/system_prompt.md`
+- User requirements: `prompts/user_prompt.md`
+- Technical details: `prompts/system_prompt.md`
 
 ## ❓ Common Questions
 

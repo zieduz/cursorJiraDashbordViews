@@ -36,7 +36,7 @@ workspace/
 │       ├── generated_code/            Generated files
 │       └── development_logs/          Workflow logs
 │
-├── doc/prompts/                       Input requirements
+├── agentic/prompts/                   Input requirements
 │   ├── user_prompt.md
 │   ├── system_prompt.md
 │   └── README.md
@@ -68,7 +68,7 @@ Option 2: Run from workspace root
 📍 PATH UPDATES:
 
 The scripts have been updated to work from the new location:
-  ✅ Input:  Reads from ../doc/prompts/
+  ✅ Input:  Reads from ../prompts/
   ✅ Output: Writes to ./generated_code/
   ✅ Logs:   Writes to ./development_logs/
 

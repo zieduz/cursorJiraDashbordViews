@@ -30,9 +30,9 @@
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `user_prompt.md` | `doc/prompts/` | User requirements |
-| `system_prompt.md` | `doc/prompts/` | Implementation guide |
-| `README.md` | `doc/prompts/` | Prompts documentation |
+| `user_prompt.md` | `prompts/` | User requirements |
+| `system_prompt.md` | `prompts/` | Implementation guide |
+| `README.md` | `prompts/` | Prompts documentation |
 
 ## 🎯 What This System Does
 
@@ -81,7 +81,7 @@ This is a **multi-agent AI system** that automatically develops code using multi
 
 ```
 ┌──────────────┐
-│ Requirements │  Read from doc/prompts/*.md
+│ Requirements │  Read from prompts/*.md
 └──────┬───────┘
        │
        ▼
@@ -394,9 +394,9 @@ cat development_logs/senior_developer.log
 |----------|---------|
 | `QUICKSTART_AGENTIC.md` | 5-minute quick start |
 | `README_AGENTIC_WORKFLOW.md` | Complete technical guide |
-| `doc/prompts/README.md` | Prompt system explained |
-| `doc/prompts/user_prompt.md` | Feature requirements |
-| `doc/prompts/system_prompt.md` | Implementation details |
+| `prompts/README.md` | Prompt system explained |
+| `prompts/user_prompt.md` | Feature requirements |
+| `prompts/system_prompt.md` | Implementation details |
 
 ## 🌟 Advanced Features
 

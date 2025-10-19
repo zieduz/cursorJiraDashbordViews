@@ -66,9 +66,10 @@ except ImportError:
 # Test 4: Check required directories
 print("\n4️⃣  Checking directory structure...")
 workspace = Path("/workspace")
-prompts_dir = workspace / "doc" / "prompts"
-output_dir = workspace / "agentic" / "generated_code"
-logs_dir = workspace / "agentic" / "development_logs"
+agentic_dir = workspace / "agentic"
+prompts_dir = agentic_dir / "prompts"
+output_dir = agentic_dir / "generated_code"
+logs_dir = agentic_dir / "development_logs"
 
 dirs_ok = True
 if prompts_dir.exists():
@@ -192,7 +193,7 @@ else:
     print("\nCommon fixes:")
     print("   • Install dependencies: pip install -r requirements_agentic.txt")
     print("   • Set API keys in .env file")
-    print("   • Create prompt files in doc/prompts/")
+    print("   • Create prompt files in prompts/")
 print("="*80 + "\n")
 
 sys.exit(0 if all_ok else 1)

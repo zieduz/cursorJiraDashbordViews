@@ -98,7 +98,7 @@ python develop_jira_auth.py
 
 ### What It Does:
 
-1. **Reads Requirements** from `doc/prompts/user_prompt.md` and `doc/prompts/system_prompt.md`
+1. **Reads Requirements** from `prompts/user_prompt.md` and `prompts/system_prompt.md`
 
 2. **Generates Code** for:
    - **Backend Files:**

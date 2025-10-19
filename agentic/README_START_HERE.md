@@ -9,7 +9,7 @@ This system uses multiple AI agents (LLMs) working together to automatically dev
 ## 🎯 What You Need to Know
 
 ### This System Will:
-1. Read your requirements from `doc/prompts/` markdown files
+1. Read your requirements from `prompts/` markdown files
 2. Use 6 different AI agents to design, develop, review, and refine code
 3. Generate 9 production-ready files (backend + frontend)
 4. Create complete documentation and installation guides
@@ -113,7 +113,7 @@ workspace/
 │  └─ .env                          ← Your API keys (create this)
 │
 ├─ 📋 INPUT (Requirements)
-│  └─ doc/prompts/
+│  └─ prompts/
 │     ├─ user_prompt.md             ← What to build
 │     ├─ system_prompt.md           ← How to build it
 │     └─ README.md                  ← Prompts guide
@@ -182,7 +182,7 @@ src/
 
 ```
 1. 📖 Requirements Analysis
-   └─ Reads: doc/prompts/*.md
+   └─ Reads: prompts/*.md
    └─ Agent: System Architect
 
 2. 🏗️  System Design

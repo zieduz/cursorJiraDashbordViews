@@ -25,7 +25,7 @@
    └─ INDEX_AGENTIC_SYSTEM.md              File index
 
 📋 PREVIOUSLY CREATED (Input requirements):
-   └─ doc/prompts/
+   └─ prompts/
       ├─ user_prompt.md               104 lines   User requirements
       ├─ system_prompt.md             1,085 lines Technical specs
       └─ README.md                    189 lines   Prompts guide

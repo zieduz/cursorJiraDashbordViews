@@ -31,9 +31,9 @@
 
 | File | Location | Size | Purpose |
 |------|----------|------|---------|
-| **`user_prompt.md`** | `doc/prompts/` | 104 lines | User requirements |
-| **`system_prompt.md`** | `doc/prompts/` | 1,085 lines | Implementation guide |
-| **`README.md`** | `doc/prompts/` | 189 lines | Prompts documentation |
+| **`user_prompt.md`** | `prompts/` | 104 lines | User requirements |
+| **`system_prompt.md`** | `prompts/` | 1,085 lines | Implementation guide |
+| **`README.md`** | `prompts/` | 189 lines | Prompts documentation |
 
 ---
 
@@ -47,7 +47,7 @@
 
 ### For Developers → Read This:
 1. **`README_AGENTIC_WORKFLOW.md`** - Architecture & design
-2. **`doc/prompts/system_prompt.md`** - What gets built
+2. **`prompts/system_prompt.md`** - What gets built
 3. **`develop_jira_auth.py`** - How it works
 
 ### For Quick Reference → Check:
@@ -64,8 +64,8 @@
 └─────────────────────────────────────────────────────────────────┘
 
 INPUT:
-├── doc/prompts/user_prompt.md         (User requirements)
-└── doc/prompts/system_prompt.md       (Technical specs)
+├── prompts/user_prompt.md         (User requirements)
+└── prompts/system_prompt.md       (Technical specs)
 
 PROCESS:
 ├── Phase 1: Requirements Analysis     (System Architect)
@@ -225,7 +225,7 @@ ls -la generated_code/
 ┌─────────────────────────────────────────────────────────────────┐
 │                    File System                                   │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ generated_   │  │ development_ │  │ doc/prompts/ │          │
+│  │ generated_   │  │ development_ │  │ prompts/ │          │
 │  │    code/     │  │    logs/     │  │              │          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
 └─────────────────────────────────────────────────────────────────┘
@@ -305,7 +305,7 @@ After generation, verify:
 4. Modify parameters
 
 ### Advanced:
-1. `doc/prompts/system_prompt.md` - Deep dive
+1. `prompts/system_prompt.md` - Deep dive
 2. Add new agents
 3. Add new phases
 4. Integrate with CI/CD

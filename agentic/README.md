@@ -67,7 +67,7 @@ python develop_jira_auth.py
 
 This system orchestrates **6 specialized AI agents** to:
 
-1. 📖 Read requirements from `../doc/prompts/`
+1. 📖 Read requirements from `./prompts/`
 2. 🏗️  Design system architecture
 3. 🔍 Review and refine design (different LLM)
 4. 💻 Generate production-ready code (9 files)
