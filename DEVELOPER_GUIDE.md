@@ -1,5 +1,7 @@
 # Developer Guide — Jira Performance Dashboard
 
+Last synced with `origin/main` on 2025-10-19.
+
 This guide explains the application architecture, modules, data flow, and how to work on the codebase. It is organized by module to make onboarding and maintenance straightforward.
 
 ## Top-Level Overview
@@ -70,8 +72,7 @@ Important envs (see `README.md` for full list):
 - `jira_sync.py` — on-demand Jira sync; also exposes `run_startup_sync`
 - `__init__.py` — aggregates routers as `api_router`
 
-### 10) `mock_data.py` and `scripts/generate_mock_data.py`
-- Utilities to seed the database with realistic sample data for local development
+<!-- Note: Mock data utilities were removed on main. Use Jira sync to populate data. -->
 
 ## Frontend Modules (`jira-dashboard/frontend/src`)
 
@@ -99,7 +100,7 @@ Important envs (see `README.md` for full list):
 
 - Backend: create venv, install `requirements.txt`, run `uvicorn app.main:app --reload`
 - Frontend: `npm install && npm start` (ensure `REACT_APP_API_URL` points to backend)
-- Seed data: run `backend/scripts/generate_mock_data.py`
+- Data: trigger a Jira sync via `POST /api/jira/sync` or rely on startup sync when configured
 
 ## Testing
 
