@@ -1,0 +1,17 @@
+# Legacy Code Analysis Requirements
+
+# OpenAI API
+openai>=1.3.0
+
+# Anthropic Claude API (optional but recommended)
+anthropic>=0.7.0
+
+# Utilities
+python-dotenv>=1.0.0
+gitpython>=3.1.0
+
+# For GitLab integration
+requests>=2.31.0
+
+# Code analysis helpers
+ast-comments>=1.1.0
