@@ -99,6 +99,9 @@ A full-stack application that connects to Jira REST API to visualize team perfor
    
    # Create tables
    python -c "from app.database import engine; from app.models import Base; Base.metadata.create_all(bind=engine)"
+
+   # Optionally trigger an initial Jira sync (requires .env configured)
+   # curl -X POST http://localhost:8000/api/jira/sync
    ```
 
 5. **Start the backend:**

@@ -1,3 +1,4 @@
+"""Forecast generation based on historical velocity time series."""
 from sqlalchemy.orm import Session
 from sqlalchemy import func, not_
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,7 @@ from .metrics_service import NON_RESOLVED_STATUSES
 
 
 class ForecastService:
+    """Generate velocity and sprint forecasts from historical ticket data."""
     def __init__(self, db: Session):
         self.db = db
     

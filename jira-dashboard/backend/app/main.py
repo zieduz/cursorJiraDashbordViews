@@ -1,3 +1,10 @@
+"""FastAPI application entrypoint for the Jira Performance Dashboard.
+
+This module initializes the FastAPI app, configures CORS, registers API
+routers, defines consistent error handling, and exposes health and root
+endpoints. It also schedules an optional Jira sync task on startup.
+"""
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -71,6 +78,11 @@ def _json_error(
     details: dict | list | None = None,
     headers: dict | None = None,
 ):
+    """Return a standardized JSON error response with a request ID header.
+
+    Ensures all errors share a consistent shape for the frontend and logs,
+    and always includes the current request's correlation identifier.
+    """
     request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID") or str(uuid.uuid4())
     payload = {
         "error": {

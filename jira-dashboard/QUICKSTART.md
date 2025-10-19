@@ -43,11 +43,9 @@ docker-compose up -d --build
 - **Filters:** Filter by project, user, date range, status
 - **Forecast:** ML-powered velocity predictions with confidence intervals
 
-### Sample Data Included
-- 90 days of historical data
-- 3 projects (E-commerce, Mobile App, Analytics Dashboard)
-- 5 users with varying productivity
-- Realistic ticket and commit patterns
+### Data Source
+- Data is fetched from Jira via REST API using your credentials in `.env`
+- Trigger a data sync with `POST /api/jira/sync` or rely on startup sync when configured
 
 ## 🔧 Configuration
 
@@ -83,7 +81,8 @@ docker-compose restart postgres
 - Verify CORS settings in backend
 
 **No data showing:**
-- Check if mock data was generated
+- Ensure Jira credentials are configured in `.env`
+- Trigger a sync: `curl -X POST http://localhost:8000/api/jira/sync`
 - Look at backend logs for errors
 
 ### Reset Everything

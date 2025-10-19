@@ -1,3 +1,8 @@
+"""Database engine, session factory, and schema utilities.
+
+Provides SQLAlchemy engine/session wiring and a lightweight schema guard to
+add nullable columns when migrations lag behind code changes.
+"""
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -10,6 +15,10 @@ Base = declarative_base()
 
 
 def get_db():
+    """Yield a database session scoped to the request lifecycle.
+
+    Ensures the session is closed after use.
+    """
     db = SessionLocal()
     try:
         yield db
