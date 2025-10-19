@@ -16,13 +16,7 @@ from .config import settings
 from .database import engine, Base, ensure_schema
 from .api import api_router
 from .api.jira_sync import run_startup_sync
-from .exceptions import (
-    JiraDashboardException,
-    jira_dashboard_exception_handler,
-    http_exception_handler,
-    validation_exception_handler,
-    generic_exception_handler,
-)
+from .exceptions import JiraDashboardException
 import asyncio
 import logging
 

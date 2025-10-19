@@ -32,9 +32,6 @@ FastAPI backend for the Jira Performance Dashboard application.
    ```bash
    # Create tables
    python -c "from app.database import engine; from app.models import Base; Base.metadata.create_all(bind=engine)"
-   
-   # Generate mock data
-   python -c "from app.mock_data import generate_mock_data; import asyncio; asyncio.run(generate_mock_data())"
    ```
 
 5. **Run the server:**

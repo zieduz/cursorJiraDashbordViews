@@ -1,13 +1,7 @@
-"""Custom exception classes and error handling for the Jira Dashboard API."""
+"""Custom exception classes for the Jira Dashboard API."""
 
 from typing import Optional, Dict, Any
-from fastapi import Request, status
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
-import logging
-
-logger = logging.getLogger(__name__)
+from fastapi import status
 
 
 class JiraDashboardException(Exception):
@@ -83,88 +77,3 @@ class ValidationError(JiraDashboardException):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
         )
-
-
-async def jira_dashboard_exception_handler(request: Request, exc: JiraDashboardException) -> JSONResponse:
-    """Handle custom Jira Dashboard exceptions."""
-    logger.error(
-        f"JiraDashboardException: {exc.message}",
-        extra={
-            "path": request.url.path,
-            "method": request.method,
-            "status_code": exc.status_code,
-            "detail": exc.detail,
-        },
-    )
-    
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": exc.message,
-            "detail": exc.detail,
-            "path": request.url.path,
-        },
-    )
-
-
-async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-    """Handle HTTP exceptions."""
-    logger.warning(
-        f"HTTPException: {exc.detail}",
-        extra={
-            "path": request.url.path,
-            "method": request.method,
-            "status_code": exc.status_code,
-        },
-    )
-    
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": "HTTP error",
-            "detail": exc.detail,
-            "path": request.url.path,
-        },
-    )
-
-
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Handle request validation errors."""
-    logger.warning(
-        f"ValidationError: {exc.errors()}",
-        extra={
-            "path": request.url.path,
-            "method": request.method,
-            "errors": exc.errors(),
-        },
-    )
-    
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "error": "Validation error",
-            "detail": exc.errors(),
-            "path": request.url.path,
-        },
-    )
-
-
-async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Handle all other unhandled exceptions."""
-    logger.exception(
-        f"Unhandled exception: {str(exc)}",
-        extra={
-            "path": request.url.path,
-            "method": request.method,
-            "exception_type": type(exc).__name__,
-        },
-    )
-    
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "error": "Internal server error",
-            "detail": "An unexpected error occurred. Please try again later.",
-            "path": request.url.path,
-        },
-    )

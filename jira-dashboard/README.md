@@ -38,12 +38,6 @@ A full-stack application that connects to Jira REST API to visualize team perfor
 - Sprint-level predictions
 - Trend analysis (increasing/decreasing/stable)
 
-### 5. Mock Data
-- 90 days of historical data
-- 3 projects with realistic data
-- 5 users with varying productivity
-- Random ticket & commit generation
-
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -103,9 +97,8 @@ A full-stack application that connects to Jira REST API to visualize team perfor
    # Start PostgreSQL (using Docker)
    docker run -d --name postgres -e POSTGRES_DB=jira_dashboard -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:15-alpine
    
-   # Create tables and generate mock data
+   # Create tables
    python -c "from app.database import engine; from app.models import Base; Base.metadata.create_all(bind=engine)"
-   python -c "from app.mock_data import generate_mock_data; import asyncio; asyncio.run(generate_mock_data())"
    ```
 
 5. **Start the backend:**
