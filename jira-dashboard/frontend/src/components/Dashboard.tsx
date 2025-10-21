@@ -21,6 +21,8 @@ import ControlChart from './Charts/ControlChart';
 import EMAChart from './Charts/EMAChart';
 import BurnChart from './Charts/BurnChart';
 import CommitsChart from './Charts/CommitsChart';
+import HeatmapChart from './Charts/HeatmapChart';
+import { ActivityHeatmapResponse } from '../types';
 
 const Dashboard: React.FC = () => {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -46,6 +48,8 @@ const Dashboard: React.FC = () => {
   const [resyncProjectKeys, setResyncProjectKeys] = useState<string[]>([]);
   const [forecastDaysAhead, setForecastDaysAhead] = useState<number>(30);
   const [showVelocityCI, setShowVelocityCI] = useState<boolean>(true);
+  const [heatmap, setHeatmap] = useState<ActivityHeatmapResponse | null>(null);
+  const [heatmapNormalized, setHeatmapNormalized] = useState<boolean>(false);
 
   const triggerResync = async () => {
     try {
@@ -78,18 +82,27 @@ const Dashboard: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const [metricsData, forecastData, cfdResp, cycleStats, leadStats] = await Promise.all([
+      const now = new Date();
+      const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); // last 30 days
+      const [metricsData, forecastData, cfdResp, cycleStats, leadStats, heatmapResp] = await Promise.all([
         apiService.getMetrics(filters),
         apiService.getForecast(forecastDaysAhead, filters.project_id, filters.user_id),
         apiService.getCumulativeFlow({ ...filters, group_by: (filters as any)?.group_by || 'day' }),
         apiService.getControlChart(filters),
         apiService.getLeadTime(filters),
+        apiService.getJiraActivityHeatmap({
+          projects: filters.project_ids || (filters.project_id ? [filters.project_id] : undefined),
+          start_date: start.toISOString(),
+          end_date: now.toISOString(),
+          normalize: heatmapNormalized,
+        }),
       ]);
 
       setMetrics(metricsData);
       setForecast(forecastData);
       setCfdData(cfdResp.cfd || []);
       setControlData({ cycle: cycleStats as any, lead: leadStats as any });
+      setHeatmap(heatmapResp as any);
     } catch (err) {
       setError('Failed to fetch data. Please check if the backend is running.');
       console.error('Error fetching data:', err);
@@ -113,7 +126,7 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [filters, forecastDaysAhead]);
+  }, [filters, forecastDaysAhead, heatmapNormalized]);
 
   useEffect(() => {
     // Fetch filter options once on mount
@@ -357,6 +370,26 @@ const Dashboard: React.FC = () => {
             data={projectProductivityData}
             title="Productivity by Project"
           />
+        </div>
+
+        {/* Activity Heatmap */}
+        <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200 mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-gray-900">Jira Activity Heatmap</h3>
+            <label className="text-sm text-gray-600 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={heatmapNormalized}
+                onChange={(e) => setHeatmapNormalized(e.target.checked)}
+              />
+              <span>Normalize</span>
+            </label>
+          </div>
+          {heatmap ? (
+            <HeatmapChart data={heatmap.matrix} normalized={heatmapNormalized} />
+          ) : (
+            <div className="text-sm text-gray-500">No activity data available</div>
+          )}
         </div>
 
         {/* Flow + Control Charts */}
