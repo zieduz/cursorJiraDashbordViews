@@ -4,7 +4,15 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
 import asyncio
 import os
+import logging
 from .config import settings
+from .exceptions import (
+    JiraConnectionError,
+    JiraAuthenticationError,
+    JiraAPIError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class JiraClient:
