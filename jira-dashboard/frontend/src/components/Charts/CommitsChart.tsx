@@ -24,6 +24,15 @@ const CommitsChart: React.FC<CommitsChartProps> = ({ data }) => {
     .sort((a, b) => b.commit_count - a.commit_count)
     .slice(0, 20);
 
+  if (!topTickets.length) {
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Commits per Issue (Top 20)</h3>
+        <p className="text-sm text-gray-600">No commits found for the selected filters and date range.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
       <h3 className="text-lg font-semibold text-gray-900 mb-4">Commits per Issue (Top 20)</h3>
