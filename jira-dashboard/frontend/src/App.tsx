@@ -1,5 +1,6 @@
 import React from 'react';
 import Dashboard from './components/Dashboard';
+import ActivityDashboard from './components/ActivityHeatmap/ActivityDashboard';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import './App.css';
 
@@ -21,8 +22,7 @@ function App() {
         </nav>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          {/* Reuse Dashboard for now; dedicated Activity page can be added later */}
-          <Route path="/activity/jira" element={<Dashboard />} />
+          <Route path="/activity/jira" element={<ActivityDashboard />} />
         </Routes>
       </div>
     </Router>
