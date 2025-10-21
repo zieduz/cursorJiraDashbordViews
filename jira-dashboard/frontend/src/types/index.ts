@@ -115,3 +115,14 @@ export interface AppConfig {
   jira_project_keys: string[];
   jira_created_since: string;
 }
+
+export interface ActivityHeatmapResponse {
+  matrix: number[][]; // 7 rows (Sun..Sat) x 24 cols (0..23)
+  total_events: number;
+  filters: {
+    projects: number[];
+    event_types: string[];
+    assignees: number[];
+    date_range: { start: string; end: string };
+  };
+}
