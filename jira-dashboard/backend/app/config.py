@@ -117,6 +117,95 @@ class Settings(BaseSettings):
         Falls back to '2025-01-01' to match the requested behavior.
         """
         return os.getenv("JIRA_CREATED_SINCE", "2025-01-01")
+
+    # --- GitLab settings ---
+    # Base URL of your GitLab instance, e.g. https://gitlab.com or https://gitlab.company.com
+    gitlab_base_url: str = ""
+    # Personal Access Token (PAT) or job token for GitLab API authentication
+    gitlab_token: str = ""
+    # Default lookback window (in days) when syncing GitLab activity, if not provided explicitly
+    gitlab_default_since_days: int = 90
+    # Concurrency and paging controls
+    gitlab_concurrency: int = 6
+    gitlab_page_size: int = 100
+
+    @property
+    def gitlab_project_ids(self) -> list[int]:
+        """Return GitLab project IDs from env var `GITLAB_PROJECT_IDS`.
+
+        Accepts JSON array (e.g., "[123, 456]") or comma-separated integers (e.g., "123,456").
+        Returns an empty list when not configured or invalid.
+        """
+        raw = os.getenv("GITLAB_PROJECT_IDS", "").strip()
+        if not raw:
+            return []
+        # JSON array first
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    ids: list[int] = []
+                    for item in parsed:
+                        try:
+                            ids.append(int(str(item).strip()))
+                        except Exception:
+                            # skip invalid items
+                            continue
+                    return [i for i in ids if i is not None]
+            except Exception:
+                pass
+        # Fallback: CSV
+        ids: list[int] = []
+        for part in raw.split(","):
+            p = part.strip().strip('"').strip("'")
+            if not p:
+                continue
+            try:
+                ids.append(int(p))
+            except Exception:
+                continue
+        return ids
+
+    @property
+    def gitlab_branch_customer_map(self) -> dict[str, str]:
+        """Return a mapping of branch-pattern => customer name from env `GITLAB_BRANCH_CUSTOMER_MAP`.
+
+        Supports JSON object (e.g., '{"S9.1.X": "MAIF", "master": "Build"}') or
+        CSV-style pairs (e.g., 'S9.1.X=MAIF,S9.2.X=CLV,master=Build').
+        Returns an empty dict when not configured or invalid.
+        """
+        raw = os.getenv("GITLAB_BRANCH_CUSTOMER_MAP", "").strip()
+        if not raw:
+            return {}
+        # JSON object
+        if raw.startswith("{") and raw.endswith("}"):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    # Coerce keys/values to strings
+                    out: dict[str, str] = {}
+                    for k, v in parsed.items():
+                        try:
+                            key = str(k).strip()
+                            val = str(v).strip()
+                            if key and val:
+                                out[key] = val
+                        except Exception:
+                            continue
+                    return out
+            except Exception:
+                pass
+        # Fallback: CSV pairs 'pattern=Customer'
+        out: dict[str, str] = {}
+        for pair in raw.split(","):
+            if "=" not in pair:
+                continue
+            k, v = pair.split("=", 1)
+            key = k.strip().strip('"').strip("'")
+            val = v.strip().strip('"').strip("'")
+            if key and val:
+                out[key] = val
+        return out
     
     class Config:
         env_file = ".env"

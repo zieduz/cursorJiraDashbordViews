@@ -77,3 +77,43 @@ class ValidationError(JiraDashboardException):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
         )
+
+
+# --- GitLab specific exceptions ---
+
+class GitLabConnectionError(JiraDashboardException):
+    """Raised when unable to connect to GitLab API."""
+
+    def __init__(self, message: str = "Unable to connect to GitLab API", detail: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=message,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=detail,
+        )
+
+
+class GitLabAuthenticationError(JiraDashboardException):
+    """Raised when GitLab authentication fails."""
+
+    def __init__(self, message: str = "GitLab authentication failed", detail: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=message,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+        )
+
+
+class GitLabAPIError(JiraDashboardException):
+    """Raised when GitLab API returns an error."""
+
+    def __init__(
+        self,
+        message: str = "GitLab API error",
+        status_code: int = status.HTTP_502_BAD_GATEWAY,
+        detail: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            message=message,
+            status_code=status_code,
+            detail=detail,
+        )
