@@ -413,6 +413,8 @@ class JiraClient:
             "priority",
             "issuetype",
             "assignee",
+            # Include comments for activity ingestion
+            "comment",
             "labels",
             "created",
             "updated",

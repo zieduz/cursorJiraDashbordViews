@@ -9,7 +9,14 @@ from pydantic import BaseModel
 import logging
 
 from ..database import get_db, SessionLocal
-from ..models import Project as ProjectModel, User as UserModel, Ticket as TicketModel
+from ..models import (
+    Project as ProjectModel,
+    User as UserModel,
+    Ticket as TicketModel,
+    ActivityEvent,
+    ActivitySource,
+    ActivityEventType,
+)
 from ..jira_client import JiraClient
 from ..services.metrics_service import NON_RESOLVED_STATUSES
 from ..config import settings
@@ -567,6 +574,66 @@ async def perform_jira_sync(
                 if user:
                     upserted_users += 1
                 upserted_tickets += 1
+
+                # Ingest activity events for heatmap analytics (status changes, comments)
+                try:
+                    # Status change events from changelog
+                    if bool(getattr(settings, "jira_include_changelog", True)):
+                        histories = (issue.get("changelog", {}) or {}).get("histories", [])
+                        for history in histories or []:
+                            created_str = history.get("created")
+                            created_dt = _parse_jira_datetime(created_str)
+                            if not created_dt:
+                                continue
+                            for item in history.get("items", []) or []:
+                                try:
+                                    if (item.get("field") or "").lower() != "status":
+                                        continue
+                                    evt = ActivityEvent(
+                                        source=ActivitySource.JIRA,
+                                        event_type=ActivityEventType.JIRA_STATUS_CHANGE,
+                                        occurred_at_utc=created_dt,
+                                        project_id=project.id,
+                                        user_id=user.id if user else None,
+                                        ticket_id=existing.id if existing else None,
+                                    )
+                                    db.add(evt)
+                                except Exception:
+                                    continue
+
+                    # Comment events (if comments present in issue payload)
+                    comments_obj = ((issue.get("fields") or {}).get("comment") or {})
+                    comments = comments_obj.get("comments", []) if isinstance(comments_obj, dict) else []
+                    for c in comments or []:
+                        try:
+                            body = c.get("body")
+                            author = (c.get("author") or {})
+                            author_id = (author.get("accountId") or "").strip() or None
+                            author_email = (author.get("emailAddress") or "").strip() or None
+                            comment_created = c.get("created")
+                            comment_dt = _parse_jira_datetime(comment_created)
+                            if not comment_dt:
+                                continue
+                            # Try to map comment author to existing user
+                            comment_user: Optional[UserModel] = None
+                            if author_id:
+                                comment_user = db.query(UserModel).filter(UserModel.jira_id == author_id).first()
+                            if not comment_user and author_email:
+                                comment_user = db.query(UserModel).filter(UserModel.email == author_email).first()
+                            evt = ActivityEvent(
+                                source=ActivitySource.JIRA,
+                                event_type=ActivityEventType.JIRA_COMMENT,
+                                occurred_at_utc=comment_dt,
+                                project_id=project.id,
+                                user_id=comment_user.id if comment_user else (user.id if user else None),
+                                ticket_id=(existing.id if existing else None),
+                            )
+                            db.add(evt)
+                        except Exception:
+                            continue
+                except Exception:
+                    # Do not fail the sync due to activity ingestion errors
+                    pass
 
             upserted_projects += 1
             # Commit changes for this project before moving to the next
