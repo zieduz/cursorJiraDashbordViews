@@ -50,13 +50,13 @@ const ActivityDashboard: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      const response = await apiService.getJiraActivityHeatmap({
+      const response = await apiService.getGitlabActivityHeatmap({
         projects: filters.projectIds.length > 0 ? filters.projectIds : undefined,
         assignees: filters.assigneeIds.length > 0 ? filters.assigneeIds : undefined,
         start_date: filters.dateRange.start.toISOString(),
         end_date: filters.dateRange.end.toISOString(),
         normalize: filters.normalize,
-        event_types: ['jira_comment', 'jira_status_change']
+        event_types: ['gitlab_commit_created', 'gitlab_mr_created', 'gitlab_mr_merged']
       });
       
       setHeatmapData(response);
@@ -111,8 +111,8 @@ const ActivityDashboard: React.FC = () => {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Jira Activity Heatmap</h1>
-          <p className="text-gray-600">Visualize team activity patterns across time</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">GitLab Activity Heatmap</h1>
+          <p className="text-gray-600">Visualize GitLab commits and MR activity patterns</p>
         </div>
 
         {/* Filters */}

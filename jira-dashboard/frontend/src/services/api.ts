@@ -161,6 +161,27 @@ export const apiService = {
     return response.data as ActivityHeatmapResponse;
   },
 
+  // Activity heatmap (GitLab)
+  getGitlabActivityHeatmap: async (params: {
+    projects?: number[];
+    event_types?: string[];
+    assignees?: number[];
+    start_date: string; // ISO8601
+    end_date: string;   // ISO8601
+    normalize?: boolean;
+  }): Promise<ActivityHeatmapResponse> => {
+    const search = new URLSearchParams();
+    if (params.projects && params.projects.length) search.append('projects', params.projects.join(','));
+    if (params.event_types && params.event_types.length) search.append('event_types', params.event_types.join(','));
+    if (params.assignees && params.assignees.length) search.append('assignees', params.assignees.join(','));
+    search.append('start_date', params.start_date);
+    search.append('end_date', params.end_date);
+    if (params.normalize) search.append('normalize', String(params.normalize));
+
+    const response = await api.get(`/api/gitlab/activity/heatmap?${search.toString()}`);
+    return response.data as ActivityHeatmapResponse;
+  },
+
   getTicket: async (id: number): Promise<Ticket> => {
     const response = await api.get(`/api/tickets/${id}`);
     return response.data;
