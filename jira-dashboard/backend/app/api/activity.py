@@ -4,7 +4,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from ..database import get_db
-from ..models import ActivityEvent, ActivitySource
+from ..models import ActivityEvent, ActivitySource, Ticket
 from sqlalchemy import func
 
 
@@ -63,6 +63,57 @@ async def get_jira_activity_heatmap(
         if 0 <= d <= 6 and 0 <= h <= 23:
             matrix[d][h] = c
             total_count += c
+
+    # Fallback: if no events found, approximate from tickets' status timestamps
+    # Only applies when requesting Jira status change events
+    if total_count == 0 and ("jira_status_change" in set(event_types_list)):
+        # Aggregate started_at and resolved_at as proxies for status changes
+        t_dow_started = func.extract("dow", Ticket.started_at).label("dow")
+        t_hour_started = func.extract("hour", Ticket.started_at).label("hour")
+        started_q = (
+            db.query(t_dow_started, t_hour_started, func.count(Ticket.id).label("count"))
+            .filter(Ticket.started_at.isnot(None))
+            .filter(Ticket.started_at >= start_date)
+            .filter(Ticket.started_at <= end_date)
+        )
+        if project_ids_list:
+            started_q = started_q.filter(Ticket.project_id.in_(project_ids_list))
+        if assignee_ids_list:
+            started_q = started_q.filter(Ticket.assignee_id.in_(assignee_ids_list))
+
+        t_dow_resolved = func.extract("dow", Ticket.resolved_at).label("dow")
+        t_hour_resolved = func.extract("hour", Ticket.resolved_at).label("hour")
+        resolved_q = (
+            db.query(t_dow_resolved, t_hour_resolved, func.count(Ticket.id).label("count"))
+            .filter(Ticket.resolved_at.isnot(None))
+            .filter(Ticket.resolved_at >= start_date)
+            .filter(Ticket.resolved_at <= end_date)
+        )
+        if project_ids_list:
+            resolved_q = resolved_q.filter(Ticket.project_id.in_(project_ids_list))
+        if assignee_ids_list:
+            resolved_q = resolved_q.filter(Ticket.assignee_id.in_(assignee_ids_list))
+
+        started_rows = started_q.group_by(t_dow_started, t_hour_started).all()
+        resolved_rows = resolved_q.group_by(t_dow_resolved, t_hour_resolved).all()
+
+        fallback_total = 0
+        for row in started_rows:
+            d = int(row.dow)
+            h = int(row.hour)
+            c = int(row.count)
+            if 0 <= d <= 6 and 0 <= h <= 23:
+                matrix[d][h] += c
+                fallback_total += c
+        for row in resolved_rows:
+            d = int(row.dow)
+            h = int(row.hour)
+            c = int(row.count)
+            if 0 <= d <= 6 and 0 <= h <= 23:
+                matrix[d][h] += c
+                fallback_total += c
+
+        total_count = fallback_total
 
     if normalize and total_count > 0:
         matrix = [[(cell / total_count) for cell in r] for r in matrix]
