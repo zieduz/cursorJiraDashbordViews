@@ -1,12 +1,20 @@
-"""ORM models defining projects, users, tickets, and commits.
+"""ORM models defining projects, users, tickets, commits, and activity events.
 
 These SQLAlchemy models back the Jira Performance Dashboard. Relationships are
 kept simple to facilitate analytical queries for metrics and charts.
 """
-from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, ForeignKey, Text, Enum as SQLEnum, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
+from enum import Enum as PyEnum
+import uuid
+try:
+    # Prefer Postgres-native types when available (dev/prod default)
+    from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB as PG_JSONB
+except Exception:  # pragma: no cover - fallback for non-Postgres envs
+    PG_UUID = None  # type: ignore
+    PG_JSONB = None  # type: ignore
 
 
 class Project(Base):
@@ -101,3 +109,64 @@ class Commit(Base):
     ticket = relationship("Ticket", back_populates="commits")
     project = relationship("Project", back_populates="commits")
     author = relationship("User", back_populates="commits")
+
+
+# --- Activity models for heatmap analytics ---
+
+class ActivitySource(str, PyEnum):
+    JIRA = "jira"
+    GITLAB = "gitlab"
+
+
+class ActivityEventType(str, PyEnum):
+    # Jira events
+    JIRA_COMMENT = "jira_comment"
+    JIRA_STATUS_CHANGE = "jira_status_change"
+    # GitLab events
+    GITLAB_COMMIT_CREATED = "gitlab_commit_created"
+    GITLAB_MR_CREATED = "gitlab_mr_created"
+    GITLAB_MR_APPROVED = "gitlab_mr_approved"
+    GITLAB_MR_MERGED = "gitlab_mr_merged"
+
+
+class ActivityEvent(Base):
+    """Raw activity events across sources for time-based analytics.
+
+    Minimal subset to power heatmap queries; additional fields can be introduced
+    later without breaking API shape.
+    """
+
+    __tablename__ = "activity_events"
+
+    # Use UUID when Postgres dialect available; otherwise fall back to text id
+    if PG_UUID is not None:
+        id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    else:  # pragma: no cover
+        id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    source = Column(SQLEnum(ActivitySource), nullable=False, index=True)
+    event_type = Column(SQLEnum(ActivityEventType), nullable=False, index=True)
+    occurred_at_utc = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    # Relations to existing models (nullable to ease ingestion)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    ticket_id = Column(Integer, ForeignKey("tickets.id"))
+
+    # Optional JSON metadata when Postgres
+    if PG_JSONB is not None:
+        extra_data = Column(PG_JSONB, nullable=False, server_default='{}')  # type: ignore
+    else:  # pragma: no cover
+        extra_data = Column(Text)  # type: ignore
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    project = relationship("Project", backref="activity_events")
+    user = relationship("User", foreign_keys=[user_id], backref="activity_events")
+    ticket = relationship("Ticket", backref="activity_events")
+
+    __table_args__ = (
+        Index("idx_activity_events_composite", "source", "event_type", "occurred_at_utc"),
+    )
