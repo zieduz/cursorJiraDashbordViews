@@ -17,6 +17,7 @@ from .filters import router as filters_router
 from .activity import router as activity_router
 from .commits import router as commits_router
 from .gitlab import router as gitlab_router
+from .pap_indicators import router as pap_indicators_router
 
 api_router = APIRouter()
 api_router.include_router(tickets_router)
@@ -29,3 +30,4 @@ api_router.include_router(filters_router)
 api_router.include_router(activity_router)
 api_router.include_router(commits_router)
 api_router.include_router(gitlab_router)
+api_router.include_router(pap_indicators_router)

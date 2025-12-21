@@ -206,6 +206,25 @@ class Settings(BaseSettings):
             if key and val:
                 out[key] = val
         return out
+
+    @property
+    def pap_tracked_user_emails(self) -> List[str]:
+        """Return list of user emails to track for PAP Indicators.
+
+        Parsed from PAP_TRACKED_USER_EMAILS environment variable.
+        Supports JSON array or comma-separated values.
+        """
+        raw = os.getenv("PAP_TRACKED_USER_EMAILS", "").strip()
+        if not raw:
+            return []
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except Exception:
+                pass
+        return [part.strip().strip('"').strip("'") for part in raw.split(",") if part.strip()]
     
     class Config:
         env_file = ".env"

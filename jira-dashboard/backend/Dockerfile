@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+# Using Google's Docker Hub mirror to bypass connectivity issues
+FROM mirror.gcr.io/library/python:3.11-slim
 
 WORKDIR /app
 

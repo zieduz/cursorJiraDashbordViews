@@ -151,3 +151,29 @@ class TicketFilters(BaseModel):
     end_date: Optional[datetime] = None
     limit: int = 100
     offset: int = 0
+
+
+# PAP Indicators Schemas
+class PAPUserProjectMetric(BaseModel):
+    user: str
+    project: str
+    count: int
+
+
+class PAPAuthorMetric(BaseModel):
+    author: str
+    count: int
+
+
+class PAPFilters(BaseModel):
+    start_date: str
+    end_date: str
+    tracked_emails: List[str]
+
+
+class PAPIndicatorsResponse(BaseModel):
+    """Response model for PAP indicators summary."""
+    comments_by_user_project: List[PAPUserProjectMetric]
+    status_changes_by_user_project: List[PAPUserProjectMetric]
+    mrs_by_author: List[PAPAuthorMetric]
+    filters: PAPFilters

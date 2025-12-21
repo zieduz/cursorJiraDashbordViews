@@ -1,6 +1,7 @@
 import React from 'react';
 import Dashboard from './components/Dashboard';
 import ActivityDashboard from './components/ActivityHeatmap/ActivityDashboard';
+import PAPIndicatorsDashboard from './components/PAPIndicators/PAPIndicatorsDashboard';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import './App.css';
 
@@ -17,12 +18,16 @@ function App() {
               <Link to="/activity/jira" className="text-gray-600 hover:text-gray-900">
                 Jira Activity
               </Link>
+              <Link to="/pap-indicators" className="text-gray-600 hover:text-gray-900">
+                Team Performance
+              </Link>
             </div>
           </div>
         </nav>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/activity/jira" element={<ActivityDashboard />} />
+          <Route path="/pap-indicators" element={<PAPIndicatorsDashboard />} />
         </Routes>
       </div>
     </Router>

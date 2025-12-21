@@ -126,3 +126,25 @@ export interface ActivityHeatmapResponse {
     date_range: { start: string; end: string };
   };
 }
+
+export interface PAPUserProjectMetric {
+  user: string;
+  project: string;
+  count: number;
+}
+
+export interface PAPAuthorMetric {
+  author: string;
+  count: number;
+}
+
+export interface PAPIndicatorsMetrics {
+  comments_by_user_project: PAPUserProjectMetric[];
+  status_changes_by_user_project: PAPUserProjectMetric[];
+  mrs_by_author: PAPAuthorMetric[];
+  filters: {
+    start_date: string;
+    end_date: string;
+    tracked_emails: string[];
+  };
+}

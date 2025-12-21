@@ -1,5 +1,16 @@
 import axios from 'axios';
-import { Metrics, Forecast, Ticket, Filters, Project, AppConfig, CumulativeFlowPoint, DurationStats, ActivityHeatmapResponse } from '../types';
+import { 
+  Metrics, 
+  Forecast, 
+  Ticket, 
+  Filters, 
+  Project, 
+  AppConfig, 
+  CumulativeFlowPoint, 
+  DurationStats, 
+  ActivityHeatmapResponse,
+  PAPIndicatorsMetrics
+} from '../types';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -194,5 +205,15 @@ export const apiService = {
     if (created_since) payload.created_since = created_since;
     const response = await api.post(`/api/jira/sync`, payload, { timeout: 300000 }); // up to 5 minutes for sync
     return response.data;
+  },
+
+  // PAP Indicators
+  getPAPIndicators: async (params: { start_date?: string; end_date?: string }): Promise<PAPIndicatorsMetrics> => {
+    const search = new URLSearchParams();
+    if (params.start_date) search.append('start_date', params.start_date);
+    if (params.end_date) search.append('end_date', params.end_date);
+
+    const response = await api.get(`/api/pap-indicators/summary?${search.toString()}`);
+    return response.data as PAPIndicatorsMetrics;
   },
 };
