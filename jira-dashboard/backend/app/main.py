@@ -5,11 +5,13 @@ routers, defines consistent error handling, and exposes health and root
 endpoints. It also schedules an optional Jira sync task on startup.
 """
 
+from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 import uuid
 from .config import settings
@@ -238,6 +240,23 @@ async def startup_event():
         logger.info("Jira sync task scheduled")
     except Exception as e:
         logger.error(f"Failed to schedule Jira sync task: {e}")
+
+
+# Serve React frontend static files if the build directory exists
+_frontend_build = Path(__file__).resolve().parent.parent.parent / "frontend" / "build"
+if _frontend_build.is_dir():
+    # Serve static assets (JS, CSS, images) under /static
+    _static_dir = _frontend_build / "static"
+    if _static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=str(_static_dir)), name="frontend-static")
+
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        """Serve React SPA for any non-API route."""
+        file_path = _frontend_build / full_path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(_frontend_build / "index.html"))
 
 
 if __name__ == "__main__":
